@@ -1,0 +1,43 @@
+{
+  "problem": "sin_ineq",
+  "source_run": "run_20260313_162904",
+  "seed": 49941,
+  "constrained_metrics": {
+    "r2_y1": 0.9948717355728148,
+    "mse_y1": 0.012205354,
+    "nrmse_y1": 0.071611874,
+    "mape_y1": 0.6929173799790206,
+    "residual_avg": 2.1048110738774994e-06,
+    "residual_max": 9.53907729126513e-05,
+    "ineq_g1_infeasible_pct": 0.0,
+    "ineq_g1_mean_violation": 0.0,
+    "ineq_g1_max_violation": 0.0,
+    "ineq_g2_infeasible_pct": 0.0,
+    "ineq_g2_mean_violation": 0.0,
+    "ineq_g2_max_violation": 0.0
+  },
+  "constrained_final_loss": {
+    "loss_data_after_projection": 0.0144340015947818,
+    "loss_displacement": 0.0001948310882653,
+    "loss_data_before_projection": 0.0144194279797375,
+    "epoch": 500.0
+  },
+  "unconstrained_metrics": {
+    "r2_y1": 0.9938464164733888,
+    "mse_y1": 0.014645633,
+    "nrmse_y1": 0.07844476,
+    "mape_y1": 0.7112853986888706,
+    "residual_avg": 0.0135185690596699,
+    "residual_max": 0.3004800081253052,
+    "ineq_g1_infeasible_pct": 15.333333611488342,
+    "ineq_g1_mean_violation": 0.0179068334400653,
+    "ineq_g1_max_violation": 0.2427045106887817,
+    "ineq_g2_infeasible_pct": 9.333333373069763,
+    "ineq_g2_mean_violation": 0.006004387512803,
+    "ineq_g2_max_violation": 0.094719648361206
+  },
+  "unconstrained_final_loss": {
+    "loss_unconstrained": 0.0139813585206866,
+    "epoch": 500.0
+  }
+}

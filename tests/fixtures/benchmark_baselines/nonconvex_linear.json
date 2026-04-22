@@ -1,0 +1,19 @@
+{
+  "problem": "nonconvex_linear",
+  "source_run": "run_20250510_112046",
+  "seed": 49941,
+  "constrained_metrics": {
+    "residual_avg": 1.365141088172095e-06,
+    "residual_max": 8.821487426757812e-06,
+    "obj_value_opt": -11.108819961547852,
+    "obj_value_pred": -11.51299285888672
+  },
+  "constrained_final_loss": {
+    "loss_data_after_projection": -11.49285668418521,
+    "loss_displacement": 0.0050239926425828,
+    "loss_data_before_projection": 9.51933379400344,
+    "objective_value_optimization": -11.064659595489502,
+    "objective_value_prediction": -11.49285668418521,
+    "epoch": 1000.0
+  }
+}

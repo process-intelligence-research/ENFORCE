@@ -1,0 +1,35 @@
+{
+  "problem": "function_fitting",
+  "source_run": "run_20260310_200846",
+  "seed": 49941,
+  "constrained_metrics": {
+    "r2_y1": 0.9999554753303528,
+    "mse_y1": 8.533903e-05,
+    "mape_y1": 0.0383752401084502,
+    "r2_y2": 0.9999701976776124,
+    "mse_y2": 4.244213e-05,
+    "mape_y2": 0.0125996972578424,
+    "residual_avg": 8.490121672366514e-08,
+    "residual_max": 9.5367431640625e-07
+  },
+  "constrained_final_loss": {
+    "loss_data_after_projection": 2.5143153834505935e-05,
+    "loss_displacement": 8.66439804667607e-05,
+    "loss_data_before_projection": 0.0001118541622417,
+    "epoch": 50000.0
+  },
+  "unconstrained_metrics": {
+    "r2_y1": 0.9999191761016846,
+    "mse_y1": 0.00015490103,
+    "mape_y1": 0.0511150355181226,
+    "r2_y2": 0.9997643828392028,
+    "mse_y2": 0.00033547494,
+    "mape_y2": 0.9970349366662916,
+    "residual_avg": 0.0133286518976092,
+    "residual_max": 0.1659016609191894
+  },
+  "unconstrained_final_loss": {
+    "loss_unconstrained": 0.0001213008581544,
+    "epoch": 50000.0
+  }
+}

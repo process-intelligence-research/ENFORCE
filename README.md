@@ -2,9 +2,9 @@
 
 ![ENFORCE graphical abstract](docs/ENFORCE_graphical_abstract.png)
 
-**Nonlinear Constrained Learning with Adaptive-depth Neural Projection.**
-
 [![arXiv](https://img.shields.io/badge/arXiv-2502.06774-b31b1b.svg)](https://arxiv.org/abs/2502.06774)
+
+**Nonlinear Constrained Learning with Adaptive-depth Neural Projection.**
 
 ENFORCE combines a neural network backbone with an **AdaNP** (Adaptive-depth Neural Projection) module to drive predictions toward feasibility with respect to nonlinear equality and inequality constraints. At each forward pass, AdaNP iteratively applies a linearize-and-project correction — an SQP-inspired Gauss-Newton step — until the constraint residual falls below a prescribed tolerance ε.
 

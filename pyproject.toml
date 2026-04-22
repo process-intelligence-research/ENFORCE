@@ -59,6 +59,7 @@ packages = ["src/enforce"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+addopts = "-m 'not slow'"
 markers = [
     "slow: marks tests as slow — full training runs (select with -m slow)",
 ]

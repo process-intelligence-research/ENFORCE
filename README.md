@@ -6,7 +6,7 @@
 
 **Nonlinear Constrained Learning with Adaptive-depth Neural Projection.**
 
-ENFORCE combines a neural network backbone with an **AdaNP** (Adaptive-depth Neural Projection) module to drive predictions toward feasibility with respect to nonlinear equality and inequality constraints. At each forward pass, AdaNP iteratively applies a linearize-and-project correction — an SQP-inspired Gauss-Newton step — until the constraint residual falls below a prescribed tolerance ε.
+ENFORCE combines a neural network backbone with an **AdaNP** (Adaptive-depth Neural Projection) module to drive predictions toward feasibility with respect to nonlinear equality and inequality constraints. At each forward pass, AdaNP iteratively applies a linearize-and-project correction - an SQP-inspired Gauss-Newton step - until the constraint residual falls below a prescribed tolerance ε.
 
 For constraints that are **affine in the output** `y`, a single NP step achieves exact feasibility. For general nonlinear constraints, ε-feasibility is obtained locally: under standard regularity conditions (LICQ, C² smoothness) and when the backbone prediction is sufficiently close to the constraint manifold, AdaNP reduces the residual `‖c(x,ỹ)‖` below ε with a linear convergence rate. The model is trained with standard unconstrained optimization (Adam), not constrained solvers.
 
@@ -43,7 +43,7 @@ PyTorch must be installed separately for your hardware (CPU or CUDA):
 # CPU
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-# CUDA — see https://pytorch.org/get-started/locally/ for the right command
+# CUDA - see https://pytorch.org/get-started/locally/ for the right command
 ```
 
 ### uv
@@ -66,7 +66,7 @@ uv sync
 
 ## Quick start
 
-### Supervised — nonlinear equality constraint
+### Supervised - nonlinear equality constraint
 
 Fit `x → (y₁, y₂)` subject to the nonlinear constraint `(0.5 y₁)² + x² + y₂ = 0`:
 
@@ -97,7 +97,7 @@ cfg   = ENFORCEConfig(input_neurons=1, output_neurons=2, hidden_neurons=64,
 model = ENFORCE(scaling_input=scaling_input, scaling_output=scaling_output,
                 c=my_constraint, config=cfg, constrained=True, weighting_option=1)
 
-# 4. Train / evaluate  (do NOT wrap in torch.no_grad() — AdaNP needs autograd)
+# 4. Train / evaluate  (do NOT wrap in torch.no_grad() - AdaNP needs autograd)
 x_tr_t = torch.tensor(x_tr_s, dtype=torch.float32)
 y_tr_t = torch.tensor(y_tr_s, dtype=torch.float32)
 x_te_t = torch.tensor(x_te_s, dtype=torch.float32)
@@ -109,7 +109,7 @@ result = Evaluator(model, EvaluationConfig()).evaluate(x_te_t, y_te_t, sp)
 preds = result.predictions  # shape [N, 2], already unscaled
 ```
 
-### Self-supervised — parametric optimization with inequality
+### Self-supervised - parametric optimization with inequality
 
 For each `x ∈ [2, 4]`, minimize `‖y‖²` subject to `y₁² + y₂ = x` (equality) and `y₁ ≥ 0` (inequality via FB):
 
@@ -131,7 +131,7 @@ def c_full(x, y_ext):   # NC=2 <= NO=3 ✓
     y = y_ext[:, :2]
     return torch.cat([parabola(x, y), fb(x, y_ext)], dim=1)
 
-# 2. SSL objective — minimize ||y||²
+# 2. SSL objective - minimize ||y||²
 class MinNorm(nn.Module):
     def forward(self, x, y_ext):
         return torch.mean(torch.sum(y_ext[:, :2]**2, dim=1))
@@ -145,7 +145,7 @@ x_tr_s, y_tr_s, _, _, sp = scale_data(x_train, y_dummy, x_train, y_dummy)
 scaling_input  = (torch.tensor(sp["input_mean"]),  torch.tensor(sp["input_std"]))
 scaling_output = (torch.tensor(sp["output_mean"]), torch.tensor(sp["output_std"]))
 
-# 4. Build — output_neurons=fb.no (network predicts y only; λ appended in forward())
+# 4. Build - output_neurons=fb.no (network predicts y only; λ appended in forward())
 cfg   = ENFORCEConfig(input_neurons=1, output_neurons=fb.no, hidden_neurons=64,
                       hidden_layers=2, training_tolerance=1e-4,
                       inference_tolerance=1e-6, max_it=100,
@@ -162,7 +162,7 @@ model  = Trainer(model, TrainingConfig(epochs=2000, n_original_outputs=fb.no)).f
 result = Evaluator(model, EvaluationConfig(
     n_original_outputs=fb.no, inequalities=fb.inequalities
 )).evaluate(x_tr_t, y_tr_t, sp)
-preds  = fb.extract_outputs(result.predictions)  # [N, 2] — y1, y2 only
+preds  = fb.extract_outputs(result.predictions)  # [N, 2] - y1, y2 only
 ```
 
 ## Tutorials
@@ -173,7 +173,7 @@ Step-by-step notebooks in the `tutorials/` folder:
 |---|---|
 | `01_equality_constraints.ipynb` | Supervised fitting with a nonlinear equality constraint (unit circle) |
 | `02_inequality_constraints.ipynb` | Supervised fitting with inequality bounds via Fischer-Burmeister |
-| `03_parametric_optimization.ipynb` | Self-supervised parametric optimization — mixed equality + inequality, MLP comparison |
+| `03_parametric_optimization.ipynb` | Self-supervised parametric optimization - mixed equality + inequality, MLP comparison |
 
 ## How it works
 
@@ -268,4 +268,4 @@ This research is supported by Shell Global Solutions International B.V., for whi
 
 ## License
 
-MIT — see `LICENSE`.
+MIT - see `LICENSE`.

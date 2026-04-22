@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "enforce-nn"
+version = "1.0.0"
+description = "A hard-constrained neural network framework that enforces nonlinear equality and inequality constraints at inference time via adaptive-depth neural projection."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["constrained learning", "hard-constrained neural networks", "trustworthy AI", "physics-informed machine learning", "parametric optimization"]
+authors = [
+    { name = "Giacomo Lastrucci", email = "G.Lastrucci@tudelft.nl" },
+    { name = "Artur Schweidtmann", email = "A.Schweidtmann@tudelft.nl"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+# NOTE: torch must be installed separately for your hardware (CPU/CUDA).
+# See https://pytorch.org/get-started/locally/
+# uv users: run `uv sync` for CPU torch, or install torch manually for CUDA.
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "scikit-learn>=1.3",
+]
+
+[project.urls]
+Homepage = "https://www.pi-research.org/"
+Source = "https://github.com/process-intelligence-research/ENFORCE"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "coverage>=7.5",
+    "ruff>=0.3",
+    "pyright>=1.1",
+    "sphinx>=7.3",
+]
+
+# torch is resolved from the PyTorch CPU index by default.
+# For CUDA, install torch manually following https://pytorch.org/get-started/locally/
+# and remove or override the [tool.uv.sources] entry below.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/enforce"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow — full training runs (select with -m slow)",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["Q", "RUF100", "UP", "I", "E", "F"]
+extend-ignore = [
+    "E501", # line too long
+]
+isort = { combine-as-imports = true }
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]

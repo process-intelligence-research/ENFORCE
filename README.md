@@ -1,3 +1,8 @@
+<p align="center">
+    <!--     You can add your logo in the _src_ below -->
+    <img src="https://www.pi-research.org/media/logo_hu8494cc98fadf15586318dd8eaf906d76_68826_0x70_resize_lanczos_3.png" />
+</p>
+
 # ENFORCE
 
 ![ENFORCE graphical abstract](docs/ENFORCE_graphical_abstract.png)
@@ -269,3 +274,27 @@ This research is supported by Shell Global Solutions International B.V., for whi
 ## License
 
 MIT - see `LICENSE`.
+
+**Copyright (C) 2025 Artur Schweidtmann, TU Delft**  
+
+## 👨‍💼 Contact & Support
+
+**Dr. Artur Schweidtmann**  
+*Process Intelligence Research*  
+*TU Delft*
+
+### Connect with us:
+<p align="left">
+<a href="https://twitter.com/ASchweidtmann" target="_blank">
+  <img align="center" src="https://img.shields.io/badge/X-000000?style=for-the-badge&logo=x&logoColor=white" alt="X (Twitter)" />
+</a>
+</p>
+<p align="left">
+<a href="https://www.linkedin.com/in/schweidtmann/" target="_blank">
+  <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" />
+</a>
+</p>
+
+---
+
+*Built with ❤️ by the Process Intelligence Research team at TU Delft*

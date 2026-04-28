@@ -1,7 +1,10 @@
+from typing import Any
+
 import torch
 import torch.nn as nn
-from typing import Union, Any
+
 from src.benchmark_problems.parametric_optimization.opt_problem import NonlinearProgram
+
 
 class SSLConfig:
     def __init__(self, soft_constrained=True, weight_loss_soft=1.0):
@@ -9,7 +12,7 @@ class SSLConfig:
         self.weight_loss_soft = weight_loss_soft
 
 class SSLLoss(nn.Module):
-    def __init__(self, config: SSLConfig, opt_prob: Union[NonlinearProgram, Any]):
+    def __init__(self, config: SSLConfig, opt_prob: NonlinearProgram | Any):
         """
         Initialize the SSLLoss class.
         

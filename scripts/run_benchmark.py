@@ -282,7 +282,10 @@ def _prepare_tensors(data: ProblemData, device: str) -> PreparedTensors:
         data.test_inputs,
         data.test_outputs,
     )
-    to_t = lambda arr: torch.tensor(arr, dtype=torch.float32, device=device)
+
+    def to_t(arr):
+        return torch.tensor(arr, dtype=torch.float32, device=device)
+
     scaling_input = (to_t(sp["input_mean"]), to_t(sp["input_std"]))
     scaling_output = (to_t(sp["output_mean"]), to_t(sp["output_std"]))
     return PreparedTensors(

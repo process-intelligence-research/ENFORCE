@@ -1,5 +1,7 @@
 import math
+
 import torch
+
 from src.enforce.fb_inequality_constraints import FischerBurmeisterReformulation
 
 

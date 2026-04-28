@@ -23,6 +23,8 @@ import pandas as pd
 matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
 
+from src.visualization.plot_benchmarking import plot_sin_ineq_results
+
 plt.rcParams.update(
     {
         "font.size": 15,
@@ -40,12 +42,8 @@ plt.rcParams.update(
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-RUN_MAIN = os.path.join(
-    "training_output", "sin_ineq", "sin_ineq", "run_20260313_162904"
-)
-RUN_SOFT = os.path.join(
-    "training_output", "sin_ineq", "sin_ineq", "run_20260313_165942"
-)
+RUN_MAIN = os.path.join("training_output", "sin_ineq", "sin_ineq", "run_20260313_162904")
+RUN_SOFT = os.path.join("training_output", "sin_ineq", "sin_ineq", "run_20260313_165942")
 OUT_DIR = RUN_MAIN
 
 # ── Data-generation parameters (must match configs/config.py) ────────────────
@@ -80,17 +78,13 @@ train_inputs = train_x
 # ── Load test data and predictions from CSVs ─────────────────────────────────
 def _load_preds(run_dir: str, mode: str) -> np.ndarray:
     """Return predictions array shape [1, N_TEST, 1] (1 run)."""
-    path = os.path.join(
-        run_dir, "test_predictions", f"{mode}_test_predictions_run_1.csv"
-    )
+    path = os.path.join(run_dir, "test_predictions", f"{mode}_test_predictions_run_1.csv")
     df = pd.read_csv(path)
     return df[["y1_pred"]].to_numpy(dtype=np.float32)[np.newaxis]  # [1, N, 1]
 
 
 def _load_before(run_dir: str, mode: str) -> np.ndarray:
-    path = os.path.join(
-        run_dir, "test_predictions", f"{mode}_test_predictions_run_1.csv"
-    )
+    path = os.path.join(run_dir, "test_predictions", f"{mode}_test_predictions_run_1.csv")
     df = pd.read_csv(path)
     return df[["y1_pred_before"]].to_numpy(dtype=np.float32)[np.newaxis]
 
@@ -116,7 +110,6 @@ test_prediction_before_projection_list_dict = {
 }
 
 # ── Call the shared plot function ─────────────────────────────────────────────
-from src.visualization.plot_benchmarking import plot_sin_ineq_results
 
 plot_sin_ineq_results(
     train_inputs=train_inputs,

@@ -50,7 +50,8 @@ class _ProjectionIFT(torch.autograd.Function):
             model.compute_dc_dy(x, y)
             y = model.project(x, y)
             y, proj_iter = model.ada_np(
-                x, y,
+                x,
+                y,
                 tolerance_mode=tolerance_mode,
                 tolerance_value=tolerance_value,
                 max_iter=max_iter,
@@ -64,18 +65,12 @@ class _ProjectionIFT(torch.autograd.Function):
             model.compute_dc_dy(x, y_jac)
             model.Wi = model.Wi_f()
             B = model.B_f().contiguous()
-            v_dummy = torch.zeros(
-                model.bs, model.nc, device=B.device, dtype=B.dtype
-            )
+            v_dummy = torch.zeros(model.bs, model.nc, device=B.device, dtype=B.dtype)
             if model.weighting_option == 1:
                 W_inv = None
             else:
                 Wi_inv = torch.inverse(model.Wi)
-                W_inv = (
-                    Wi_inv.unsqueeze(0).repeat(model.bs, 1, 1)
-                    if Wi_inv.dim() <= 2
-                    else Wi_inv.contiguous()
-                )
+                W_inv = Wi_inv.unsqueeze(0).repeat(model.bs, 1, 1) if Wi_inv.dim() <= 2 else Wi_inv.contiguous()
             B_star, _ = model.projection_tensors(B, v_dummy, W_inv=W_inv)
 
         ctx.save_for_backward(B_star.detach())
@@ -87,9 +82,7 @@ class _ProjectionIFT(torch.autograd.Function):
         # IFT gradient: ∂L/∂ŷ = B_starᵀ · ∂L/∂y*   shape [BS, NO]
         # Transpose is needed for weighted W ≠ I (B_star is only self-adjoint
         # in the W-inner product, not the standard one used by the loss).
-        grad_yhat = torch.bmm(
-            B_star.transpose(1, 2), grad_output.unsqueeze(-1)
-        ).squeeze(-1)
+        grad_yhat = torch.bmm(B_star.transpose(1, 2), grad_output.unsqueeze(-1)).squeeze(-1)
         # One return value per forward() positional arg:
         # yhat, model, x, tolerance_mode, tolerance_value, max_iter
         return grad_yhat, None, None, None, None, None
@@ -152,7 +145,7 @@ class ENFORCE(nn.Module):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
         torch.cuda.manual_seed_all(cfg.random_seed)
-        super(ENFORCE, self).__init__()
+        super().__init__()
 
         # ── Network architecture ───────────────────────────────────────────────
         # If fb is provided, the network predicts only the original outputs (fb.no).
@@ -173,18 +166,10 @@ class ENFORCE(nn.Module):
         # self.no is the full extended output dimension (including FB multipliers).
         self.no = (fb.no + fb.n_ineq) if fb is not None else cfg.output_neurons
 
-        self.mean_input = torch.as_tensor(
-            scaling_input[0], device=self.device, dtype=torch.float32
-        )
-        self.std_input = torch.as_tensor(
-            scaling_input[1], device=self.device, dtype=torch.float32
-        )
-        self.mean_output = torch.as_tensor(
-            scaling_output[0], device=self.device, dtype=torch.float32
-        )
-        self.std_output = torch.as_tensor(
-            scaling_output[1], device=self.device, dtype=torch.float32
-        )
+        self.mean_input = torch.as_tensor(scaling_input[0], device=self.device, dtype=torch.float32)
+        self.std_input = torch.as_tensor(scaling_input[1], device=self.device, dtype=torch.float32)
+        self.mean_output = torch.as_tensor(scaling_output[0], device=self.device, dtype=torch.float32)
+        self.std_output = torch.as_tensor(scaling_output[1], device=self.device, dtype=torch.float32)
         self._c = c
         self.fb = fb
         self.constrained = constrained
@@ -205,9 +190,7 @@ class ENFORCE(nn.Module):
     def check_system(self):
         # Issue a warning if the system is determined
         if self.nc == self.no:
-            warnings.warn(
-                "The system is determined. Maybe you already know your underlying model!"
-            )
+            warnings.warn("The system is determined. Maybe you already know your underlying model!")
 
         # Ensure the number of constraints is not greater than the number of outputs
         try:
@@ -225,9 +208,7 @@ class ENFORCE(nn.Module):
             self.nc = 1  # Since c returns a tensor of shape [BS]
             self.check_system()
             return ci.unsqueeze(1)
-        elif (
-            isinstance(ci, torch.Tensor) and ci.ndim > 1
-        ):  # return a tensor of shape [BS, NC]
+        elif isinstance(ci, torch.Tensor) and ci.ndim > 1:  # return a tensor of shape [BS, NC]
             self.nc = ci.shape[1]  # Number of constraints
             self.check_system()
             return ci
@@ -243,9 +224,7 @@ class ENFORCE(nn.Module):
             # Append zero columns for FB dual variables.
             # At feasible interior points the correct KKT value is λ_i = 0;
             # the Newton projection will set the correct λ at active constraints.
-            zeros = torch.zeros(
-                x.shape[0], self.fb.n_ineq, device=x.device, dtype=x.dtype
-            )
+            zeros = torch.zeros(x.shape[0], self.fb.n_ineq, device=x.device, dtype=x.dtype)
             x = torch.cat([x, zeros], dim=1)
         return x
 
@@ -255,9 +234,7 @@ class ENFORCE(nn.Module):
         # print(f"Predict time: {time.time()-t:.6f} seconds")
         loss_data_before_projection = self.loss_function(y, yhat)
         loss_data_after_projection = self.loss_function(y, ytilde)
-        loss_displacement = torch.mean(
-            (yhat - ytilde) ** 2
-        )  # this is zero if the projection is not done
+        loss_displacement = torch.mean((yhat - ytilde) ** 2)  # this is zero if the projection is not done
         loss = self.cfg.weight_loss_displacement * loss_displacement
 
         x_unscaled, ytilde_unscaled = self.unscale(x, ytilde)
@@ -346,7 +323,7 @@ class ENFORCE(nn.Module):
                         self.compute_dc_dy(x, yhat_preview)
                         ytilde_preview = self.project(x, yhat_preview).detach()
                     loss_before = self.loss_function(y, yhat)
-                    loss_after  = self.loss_function(y, ytilde_preview)
+                    loss_after = self.loss_function(y, ytilde_preview)
                     if loss_before < loss_after:
                         # Projection hurts: skip it, backprop through network only.
                         if self.start_projection:
@@ -363,9 +340,7 @@ class ENFORCE(nn.Module):
                             f"Iteration: {self.training_iter} "
                             f"Loss before: {loss_before} Loss after: {loss_after}"
                         )
-                ytilde = _ProjectionIFT.apply(
-                    yhat, self, x, "mean", self.cfg.training_tolerance, self.cfg.max_it
-                )
+                ytilde = _ProjectionIFT.apply(yhat, self, x, "mean", self.cfg.training_tolerance, self.cfg.max_it)
                 proj_iter = getattr(self, "_ift_proj_iter", 1)
                 self.start_projection = True
                 return ytilde, yhat, proj_iter
@@ -425,9 +400,7 @@ class ENFORCE(nn.Module):
                             print(
                                 f"Epoch {self.epoch} Average computed obj value: {avg_computed_obj_value:.3f} Average predicted obj value: {avg_pred_obj_value:.3f}"
                             )
-                            print(
-                                f"Difference objective: {(avg_pred_obj_value - avg_computed_obj_value):.3f}"
-                            )
+                            print(f"Difference objective: {(avg_pred_obj_value - avg_computed_obj_value):.3f}")
                             print(
                                 f"Relative difference objective: {((avg_pred_obj_value - avg_computed_obj_value) / avg_computed_obj_value * 100):.3f}%"
                             )
@@ -440,12 +413,8 @@ class ENFORCE(nn.Module):
                                     f"Epoch {self.epoch} Soft constraint loss before projection: {torch.mean(torch.abs(c_hat)):.3f} after projection: {torch.mean(torch.abs(c_tilde)):.3f}"
                                 )
                                 self._epochprint = self.epoch
-                            ssl_loss_hat += self.cfg.weight_loss_soft * torch.mean(
-                                torch.abs(c_hat)
-                            )
-                            ssl_loss_tilde += self.cfg.weight_loss_soft * torch.mean(
-                                torch.abs(c_tilde)
-                            )
+                            ssl_loss_hat += self.cfg.weight_loss_soft * torch.mean(torch.abs(c_hat))
+                            ssl_loss_tilde += self.cfg.weight_loss_soft * torch.mean(torch.abs(c_tilde))
                         if ssl_loss_hat < ssl_loss_tilde:
                             ytilde = yhat
                             if self.start_projection:
@@ -455,8 +424,7 @@ class ENFORCE(nn.Module):
                                 )
                         elif (
                             ssl_loss_hat > ssl_loss_tilde
-                            and self.compute_residual(c_tilde, tolerance_mode="mean")
-                            > self.cfg.training_tolerance
+                            and self.compute_residual(c_tilde, tolerance_mode="mean") > self.cfg.training_tolerance
                         ):
                             if not self.start_projection:
                                 print(
@@ -624,8 +592,8 @@ class ENFORCE(nn.Module):
             inv = 1.0 / m  # [NO]
             inv = inv / inv.min()  # normalize
             # build single [NO, NO] diag matrix via broadcast‐mul
-            I = torch.eye(no, device=device, dtype=dtype)
-            Wi = I * inv  # broadcast inv over diag only
+            eye_mat = torch.eye(no, device=device, dtype=dtype)
+            Wi = eye_mat * inv  # broadcast inv over diag only
             return Wi
 
         elif self.weighting_option == 7:
@@ -633,8 +601,8 @@ class ENFORCE(nn.Module):
             # Initialised to 1 (log = 0); strictly positive throughout training.
             # Returns [NO, NO]; project() broadcasts to [BS, NO, NO].
             w = self.proj_weight_log_diag.to(dtype=dtype).exp()  # [NO]
-            I = torch.eye(no, device=device, dtype=dtype)
-            Wi = I * w  # diag(w), off-diagonals stay zero
+            eye_mat = torch.eye(no, device=device, dtype=dtype)
+            Wi = eye_mat * w  # diag(w), off-diagonals stay zero
             return Wi
 
         else:
@@ -672,9 +640,9 @@ class ENFORCE(nn.Module):
 
             # ── 1. Compute gram matrix ─────────────────────────────────────────
             if W_inv is None:
-                BWB_T = torch.bmm(B, B_T)                       # [BS, NC, NC]
+                BWB_T = torch.bmm(B, B_T)  # [BS, NC, NC]
             else:
-                BWB_T = torch.bmm(torch.bmm(B, W_inv), B_T)    # [BS, NC, NC]
+                BWB_T = torch.bmm(torch.bmm(B, W_inv), B_T)  # [BS, NC, NC]
 
             # ── 2. Regularise + symmetrise ─────────────────────────────────────
             # Regularisation and symmetrisation are skipped for the unweighted
@@ -702,27 +670,25 @@ class ENFORCE(nn.Module):
                 # ill-conditioning). Fall back to eigh which always succeeds on
                 # symmetric matrices; clamp negative eigenvalues to eps_chol to
                 # recover the intended regularisation.
-                vals, vecs = torch.linalg.eigh(BWB_T)           # [BS,NC],[BS,NC,NC]
+                vals, vecs = torch.linalg.eigh(BWB_T)  # [BS,NC],[BS,NC,NC]
                 vals = vals.clamp_min(self.eps_chol)
-                mid_inv = (
-                    vecs @ torch.diag_embed(1.0 / vals) @ vecs.transpose(1, 2)
-                )                                                 # [BS, NC, NC]
+                mid_inv = vecs @ torch.diag_embed(1.0 / vals) @ vecs.transpose(1, 2)  # [BS, NC, NC]
             else:
-                mid_inv = torch.cholesky_inverse(ch)             # [BS, NC, NC]
+                mid_inv = torch.cholesky_inverse(ch)  # [BS, NC, NC]
 
             # ── 4. Form M = W⁻¹·Bᵀ·(BWB_T)⁻¹ (or Bᵀ·(BB_T)⁻¹ when unweighted)
             if W_inv is None:
-                M = torch.bmm(B_T, mid_inv)                      # [BS, NO, NC]
+                M = torch.bmm(B_T, mid_inv)  # [BS, NO, NC]
             else:
-                M = torch.bmm(torch.bmm(W_inv, B_T), mid_inv)   # [BS, NO, NC]
+                M = torch.bmm(torch.bmm(W_inv, B_T), mid_inv)  # [BS, NO, NC]
 
             # ── 5. B_star = I − M·B ────────────────────────────────────────────
-            MB = torch.bmm(M, B)                                  # [BS, NO, NO]
+            MB = torch.bmm(M, B)  # [BS, NO, NO]
             B_star = -MB
             B_star.diagonal(dim1=1, dim2=2).add_(1.0)
 
             # ── 6. v_star = M·v ────────────────────────────────────────────────
-            v_star = torch.bmm(M, v.unsqueeze(2)).squeeze(2)    # [BS, NO]
+            v_star = torch.bmm(M, v.unsqueeze(2)).squeeze(2)  # [BS, NO]
 
             return B_star, v_star
 

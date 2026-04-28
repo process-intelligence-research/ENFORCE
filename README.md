@@ -3,7 +3,7 @@
     <img src="https://www.pi-research.org/media/logo_hu8494cc98fadf15586318dd8eaf906d76_68826_0x70_resize_lanczos_3.png" />
 </p>
 
-# ENFORCE
+# ENFORCE - Nonlinear Constrained Learning with Adaptive-depth Neural Projection
 
 ![ENFORCE graphical abstract](docs/ENFORCE_graphical_abstract.png)
 

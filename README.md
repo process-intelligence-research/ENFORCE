@@ -167,7 +167,7 @@ preds  = fb.extract_outputs(result.predictions)  # [N, 2] - y1, y2 only
 
 ## Tutorials
 
-Step-by-step notebooks in the `tutorials/` folder:
+Step-by-step notebooks in the `notebooks/tutorials/` folder:
 
 | Notebook | Topic |
 |---|---|

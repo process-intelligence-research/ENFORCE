@@ -78,7 +78,7 @@ Fit `x → (y₁, y₂)` subject to the nonlinear constraint `(0.5 y₁)² + x²
 ```python
 import torch
 import numpy as np
-from enforce import ENFORCEConfig, ENFORCE
+from enforce.core.model import ENFORCEConfig, ENFORCE
 from enforce.engines.train import Trainer, TrainingConfig
 from enforce.engines.evaluate import Evaluator, EvaluationConfig
 from enforce.data.data_utils import generate_data, scale_data
@@ -120,7 +120,7 @@ For each `x ∈ [2, 4]`, minimize `‖y‖²` subject to `y₁² + y₂ = x` (eq
 
 ```python
 import torch, torch.nn as nn, numpy as np
-from enforce import ENFORCEConfig, ENFORCE
+from enforce.core.model import ENFORCEConfig, ENFORCE
 from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
 from enforce.engines.train import Trainer, TrainingConfig
 from enforce.engines.evaluate import Evaluator, EvaluationConfig

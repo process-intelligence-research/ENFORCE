@@ -271,6 +271,7 @@ Key flags in `src/benchmark_problems/config_benchmarking.py`:
 
 | | | |
 | --- | --- | --- |
+| <img src="static/profile_GL.png" width="50"> | [Giacomo Lastrucci](https://www.pi-research.org/author/giacomo-lastrucci/) | <a href="https://www.linkedin.com/in/giacomo-lastrucci/" rel="nofollow noreferrer"> <img src="https://i.sstatic.net/gVE0j.png" >  </a> <a href="https://scholar.google.com/citations?user=P0_vdtQAAAAJ&hl=en" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/pyDEXPI/master/docs/logos/google-scholar-square.svg" width="14">  </a> |
 | <img src="https://raw.githubusercontent.com/process-intelligence-research/pyDEXPI/master/docs/photos/Artur.jpg" width="50"> | [Artur M. Schweidtmann](https://www.pi-research.org/author/artur-schweidtmann/) | <a href="https://www.linkedin.com/in/schweidtmann/" rel="nofollow noreferrer"> <img src="https://i.sstatic.net/gVE0j.png" >  </a> <a href="https://scholar.google.com/citations?user=g-GwouoAAAAJ&hl=en" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/pyDEXPI/master/docs/logos/google-scholar-square.svg" width="14">  </a> |
 
 

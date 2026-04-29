@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "enforce-nn"
-version = "1.0.0"
+version = "1.0.1"
 description = "A hard-constrained neural network framework that enforces nonlinear equality and inequality constraints at inference time via adaptive-depth neural projection."
 readme = "README.md"
 license = { file = "LICENSE" }

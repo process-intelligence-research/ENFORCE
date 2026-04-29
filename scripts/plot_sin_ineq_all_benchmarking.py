@@ -23,7 +23,7 @@ import pandas as pd
 matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
 
-from src.visualization.plot_benchmarking import plot_sin_ineq_results
+from benchmark_problems.visualization.plot_benchmarking import plot_sin_ineq_results
 
 plt.rcParams.update(
     {

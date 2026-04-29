@@ -328,7 +328,7 @@ def test_benchmark_reproducibility(monkeypatch, tmp_path, problem):
     # Inject config: full real hyperparameters, tmp_path as output directory.
     cfg_dict = {**_PROBLEM_CONFIGS[problem], "TRAINING_DIR": str(tmp_path)}
     cfg = SimpleNamespace(**cfg_dict)
-    monkeypatch.setitem(sys.modules, "src.benchmark_problems.config_benchmarking", cfg)
+    monkeypatch.setitem(sys.modules, "benchmark_problems.config_benchmarking", cfg)
     monkeypatch.delitem(sys.modules, "scripts.run_benchmark", raising=False)
     monkeypatch.delitem(sys.modules, "run_benchmark", raising=False)
 

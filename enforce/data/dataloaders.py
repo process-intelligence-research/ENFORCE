@@ -15,9 +15,7 @@ class Dataloader:
         try:
             self.input_data = pd.read_csv(self.input_path, header=0)
             self.output_data = pd.read_csv(self.output_path, header=0)
-            print(
-                f"Successfully loaded input from {self.input_path} and output from {self.output_path}"
-            )
+            print(f"Successfully loaded input from {self.input_path} and output from {self.output_path}")
             # Convert to numpy arrays
             self.input_data = self.input_data.to_numpy()
             self.output_data = self.output_data.to_numpy()
@@ -28,12 +26,8 @@ class Dataloader:
             test_samples = total_samples - train_samples - val_samples
             self.train_inputs = self.input_data[:train_samples]
             self.train_outputs = self.output_data[:train_samples]
-            self.val_inputs = self.input_data[
-                train_samples : train_samples + val_samples
-            ]
-            self.val_outputs = self.output_data[
-                train_samples : train_samples + val_samples
-            ]
+            self.val_inputs = self.input_data[train_samples : train_samples + val_samples]
+            self.val_outputs = self.output_data[train_samples : train_samples + val_samples]
             self.test_inputs = self.input_data[train_samples + val_samples :]
             self.test_outputs = self.output_data[train_samples + val_samples :]
             # Print the number of samples in each dataset
@@ -43,9 +37,7 @@ class Dataloader:
             # Print the total number of samples
             print(f"Total number of samples: {total_samples}")
             # Print the ratio of training, validation, and test samples
-            print(
-                f"Training, Validation, Test ratio: {t_v_t_ratio[0]}:{t_v_t_ratio[1]}:{t_v_t_ratio[2]}"
-            )
+            print(f"Training, Validation, Test ratio: {t_v_t_ratio[0]}:{t_v_t_ratio[1]}:{t_v_t_ratio[2]}")
 
         except Exception as e:
             print(f"Error loading CSV files: {e}")

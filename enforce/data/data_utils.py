@@ -1,14 +1,15 @@
+from collections.abc import Callable
+
 import numpy as np
-from typing import Callable, List, Tuple, Dict, Union
 
 
 def generate_data(
-    functions: List[Callable], 
-    num_samples: int, 
-    left_limit: Union[float, List[float]], 
-    right_limit: Union[float, List[float]],
-    function_args: Union[None, List[Dict]] = None
-) -> Tuple[np.ndarray, np.ndarray]:
+    functions: list[Callable],
+    num_samples: int,
+    left_limit: float | list[float],
+    right_limit: float | list[float],
+    function_args: None | list[dict] = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Generates data by applying an arbitrary number of functions to random samples of x values.
 
@@ -21,12 +22,12 @@ def generate_data(
                                             for monovariate functions or a list for multivariate.
     right_limit (Union[float, List[float]]): Upper bounds of the input ranges. Can be a single float
                                              for monovariate functions or a list for multivariate.
-    function_args (List[Dict], optional): List of dictionaries with arguments for each function. 
+    function_args (List[Dict], optional): List of dictionaries with arguments for each function.
                                           Each dictionary corresponds to a function in `functions`.
                                           Defaults to None, meaning no extra arguments.
 
     Returns:
-    Tuple[np.ndarray, np.ndarray]: 
+    Tuple[np.ndarray, np.ndarray]:
         Tuple containing:
         - inputs (np.ndarray): Array of sampled x values, shape (num_samples, num_dimensions).
         - outputs (np.ndarray): 2D array of function outputs, shape (num_samples, num_functions).
@@ -36,16 +37,15 @@ def generate_data(
         left_limit = [left_limit]
     if isinstance(right_limit, float):
         right_limit = [right_limit]
-    
+
     # Check that left_limit and right_limit have the same length
     assert len(left_limit) == len(right_limit), "left_limit and right_limit must have the same length"
 
     # Generate random x values for each dimension
     num_dimensions = len(left_limit)
-    inputs = np.column_stack([
-        np.random.uniform(left_limit[i], right_limit[i], num_samples)
-        for i in range(num_dimensions)
-    ])
+    inputs = np.column_stack(
+        [np.random.uniform(left_limit[i], right_limit[i], num_samples) for i in range(num_dimensions)]
+    )
 
     # Initialize an empty list to store the outputs of each function
     outputs = []
@@ -58,7 +58,7 @@ def generate_data(
 
     # Stack outputs vertically to get a shape of (num_samples, num_functions)
     outputs = np.column_stack(outputs)
-    
+
     return inputs, outputs
 
 
@@ -70,7 +70,7 @@ def generate_data_feasible(
     feasibility_check: Callable,
     max_oversample: int = 20,
     function_args=None,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Generate data by rejection-sampling only feasible points.
 
     Repeatedly draws candidate samples in bulk and keeps only those where
@@ -100,16 +100,14 @@ def generate_data_feasible(
     inputs  : ``[num_samples, NI]``
     outputs : ``[num_samples, NO]``
     """
-    collected_inputs: List[np.ndarray] = []
-    collected_outputs: List[np.ndarray] = []
+    collected_inputs: list[np.ndarray] = []
+    collected_outputs: list[np.ndarray] = []
     total_collected = 0
 
     while total_collected < num_samples:
         # Draw a larger-than-needed batch
         batch_size = max_oversample * (num_samples - total_collected)
-        inp, out = generate_data(
-            functions, batch_size, left_limit, right_limit, function_args
-        )
+        inp, out = generate_data(functions, batch_size, left_limit, right_limit, function_args)
         mask = feasibility_check(inp, out)
         inp_ok = inp[mask]
         out_ok = out[mask]
@@ -135,14 +133,14 @@ def scale_data(train_inputs, train_outputs, test_inputs, test_outputs):
     test_outputs (np.ndarray): Test set outputs.
 
     Returns:
-    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict]: 
+    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict]:
         Tuple containing:
         - train_inputs_scaled (np.ndarray): Scaled training set inputs.
         - train_outputs_scaled (np.ndarray): Scaled training set outputs.
         - test_inputs_scaled (np.ndarray): Scaled test set inputs.
         - test_outputs_scaled (np.ndarray): Scaled test set outputs.
         - scaling_params (Dict): Dictionary containing the scaling parameters.
-"""
+    """
     input_mean = train_inputs.mean(axis=0)
     input_std = train_inputs.std(axis=0)
     output_mean = train_outputs.mean(axis=0)
@@ -160,18 +158,13 @@ def scale_data(train_inputs, train_outputs, test_inputs, test_outputs):
     test_outputs_scaled = (test_outputs - output_mean) / output_std_safe
 
     scaling_params = {
-        'input_mean': input_mean,  # mean of the training inputs. datatype: np.ndarray
-        'input_std': input_std,
-        'output_mean': output_mean,
+        "input_mean": input_mean,  # mean of the training inputs. datatype: np.ndarray
+        "input_std": input_std,
+        "output_mean": output_mean,
         # Store output_std_safe so model.py's all-or-nothing std check always
         # passes: columns with zero training std (e.g. FB multiplier columns)
         # get a safe std of 1.0, leaving them effectively un-normalised.
-        'output_std': output_std_safe,
+        "output_std": output_std_safe,
     }
 
-    return (
-        train_inputs_scaled, 
-        train_outputs_scaled, 
-        test_inputs_scaled, 
-        test_outputs_scaled, 
-        scaling_params)
+    return (train_inputs_scaled, train_outputs_scaled, test_inputs_scaled, test_outputs_scaled, scaling_params)

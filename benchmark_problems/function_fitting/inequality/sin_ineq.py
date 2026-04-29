@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from src.enforce.fb_inequality_constraints import FischerBurmeisterReformulation
+from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
 
 
 def _g_upper(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:

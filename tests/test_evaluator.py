@@ -16,10 +16,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.enforce.config import ENFORCEConfig
-from src.enforce.model import ENFORCE
-from src.engines.evaluate import EvalResult, EvaluationConfig, Evaluator
-from src.engines.train import Trainer, TrainingConfig
+from enforce.core.config import ENFORCEConfig
+from enforce.core.model import ENFORCE
+from enforce.engines.evaluate import EvalResult, EvaluationConfig, Evaluator
+from enforce.engines.train import Trainer, TrainingConfig
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

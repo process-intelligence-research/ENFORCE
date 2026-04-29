@@ -19,9 +19,9 @@ in two complementary ways:
 import pytest
 import torch
 
-from src.enforce.config import ENFORCEConfig
-from src.enforce.fb_inequality_constraints import FischerBurmeisterReformulation
-from src.enforce.model import ENFORCE
+from enforce.core.config import ENFORCEConfig
+from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
+from enforce.core.model import ENFORCE
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -302,7 +302,7 @@ class TestLiveConfigImport:
 
     @pytest.fixture(scope="class")
     def live_cfg(self):
-        from src.benchmark_problems.config_benchmarking import (
+        from benchmark_problems.config_benchmarking import (
             ADA_NP_AUTO_ACTIVATION,
             EPOCH_START_HARD_CONSTRAINED,
             HIDDEN_LAYERS,
@@ -369,7 +369,7 @@ class TestLiveConfigImport:
     def test_live_config_matches_a_canonical_problem(self, live_cfg):
         """The live config's architecture must match exactly one of the known
         canonical problem configurations."""
-        from src.benchmark_problems.config_benchmarking import PROBLEM
+        from benchmark_problems.config_benchmarking import PROBLEM
 
         if PROBLEM in PROBLEM_CONFIGS:
             spec = PROBLEM_CONFIGS[PROBLEM]

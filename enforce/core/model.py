@@ -6,7 +6,7 @@ import torch
 import torch.autograd.profiler as profiler
 import torch.nn as nn
 
-from src.enforce.config import ENFORCEConfig
+from enforce.core.config import ENFORCEConfig
 
 
 class _ProjectionIFT(torch.autograd.Function):

@@ -121,7 +121,7 @@ For each `x ∈ [2, 4]`, minimize `‖y‖²` subject to `y₁² + y₂ = x` (eq
 ```python
 import torch, torch.nn as nn, numpy as np
 from enforce import ENFORCEConfig, ENFORCE
-from enforce.fb_inequality_constraints import FischerBurmeisterReformulation
+from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
 from enforce.engines.train import Trainer, TrainingConfig
 from enforce.engines.evaluate import Evaluator, EvaluationConfig
 from enforce.data.data_utils import scale_data
@@ -206,7 +206,7 @@ which encodes the KKT complementarity conditions as an equality. AdaNP then oper
 
 The original benchmark datasets can be downloaded from [here](https://surfdrive.surf.nl/s/wxH67jTWfAbqTH5) and placed in `data/raw`. The original benchmark training results can be downloaded from [here](https://surfdrive.surf.nl/s/KN5W6fBrWL8Ftry) (7.6 GB).
 
-All benchmarks are run through `scripts/run_benchmark.py`. Select the problem by setting `PROBLEM` in `src/benchmark_problems/config_benchmarking.py`, then run from the repo root:
+All benchmarks are run through `scripts/run_benchmark.py`. Select the problem by setting `PROBLEM` in `benchmark_problems/config_benchmarking.py`, then run from the repo root:
 
 ```
 python scripts/run_benchmark.py
@@ -215,7 +215,7 @@ python scripts/run_benchmark.py
 ### Function fitting (equality constraint)
 
 ```python
-# src/benchmark_problems/config_benchmarking.py
+# benchmark_problems/config_benchmarking.py
 PROBLEM = "function_fitting"
 MODEL   = "BOTH"   # trains ENFORCE and MLP baseline
 ```

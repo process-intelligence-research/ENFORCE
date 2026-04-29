@@ -3,10 +3,10 @@
 Strategy
 --------
 run_benchmark.py resolves its config at *import time* via
-``from src.benchmark_problems.config_benchmarking import ...``.  Each test therefore:
+``from benchmark_problems.config_benchmarking import ...``.  Each test therefore:
 
 1. Injects a minimal ``SimpleNamespace`` mock for the
-   ``src.benchmark_problems.config_benchmarking`` module into ``sys.modules``.
+   ``benchmark_problems.config_benchmarking`` module into ``sys.modules``.
 2. Evicts any cached ``run_benchmark`` module so that the fresh import
    picks up the mocked config.
 3. Imports ``run_benchmark`` and calls ``main()``.
@@ -158,7 +158,7 @@ def test_benchmark_smoke(monkeypatch, problem):
     skip_if_data_missing([getattr(cfg, k, None) for k in DATA_FILE_PATH_KEYS], problem)
 
     # 1. Replace the config module with our minimal mock.
-    monkeypatch.setitem(sys.modules, "src.benchmark_problems.config_benchmarking", cfg)
+    monkeypatch.setitem(sys.modules, "benchmark_problems.config_benchmarking", cfg)
 
     # 2. Evict any cached run_benchmark so the fresh import picks up the mock.
     monkeypatch.delitem(sys.modules, "run_benchmark", raising=False)

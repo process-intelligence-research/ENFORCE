@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from src.enforce.config import ENFORCEConfig
+from enforce.core.config import ENFORCEConfig
 
 
 class TestENFORCEConfigDefaults:

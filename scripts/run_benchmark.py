@@ -18,7 +18,7 @@ import pandas as pd
 import torch
 import torch.autograd.profiler as profiler
 
-from src.benchmark_problems.config_benchmarking import (
+from benchmark_problems.config_benchmarking import (
     ADA_NP_AUTO_ACTIVATION,
     BATCH_SIZE,
     DATA_TEST,
@@ -52,20 +52,20 @@ from src.benchmark_problems.config_benchmarking import (
     WEIGHT_LOSS_SOFT,
     N,
 )
-from src.benchmark_problems.engineering_problems.extraction_column import constraints_column
-from src.benchmark_problems.engineering_problems.pooling import make_pooling_constraints
-from src.benchmark_problems.function_fitting.equality.constraints import get_constraints
-from src.benchmark_problems.function_fitting.equality.functions import get_functions
-from src.benchmark_problems.function_fitting.inequality.sin_ineq import make_sin_ineq_constraints
-from src.benchmark_problems.parametric_optimization.opt_problem import NonconvexProgram, NonlinearProgram
-from src.benchmark_problems.parametric_optimization.ssl_loss import SSLConfig, SSLLoss
-from src.data.data_utils import generate_data, scale_data
-from src.data.dataloaders import Dataloader
-from src.enforce.config import ENFORCEConfig
-from src.enforce.model import ENFORCE
-from src.engines.evaluate import EvaluationConfig, Evaluator
-from src.engines.train import Trainer, TrainingConfig
-from src.visualization.plot_benchmarking import plot_all_results, plot_sin_ineq_results
+from benchmark_problems.engineering_problems.extraction_column import constraints_column
+from benchmark_problems.engineering_problems.pooling import make_pooling_constraints
+from benchmark_problems.function_fitting.equality.constraints import get_constraints
+from benchmark_problems.function_fitting.equality.functions import get_functions
+from benchmark_problems.function_fitting.inequality.sin_ineq import make_sin_ineq_constraints
+from benchmark_problems.parametric_optimization.opt_problem import NonconvexProgram, NonlinearProgram
+from benchmark_problems.parametric_optimization.ssl_loss import SSLConfig, SSLLoss
+from enforce.data.data_utils import generate_data, scale_data
+from enforce.data.dataloaders import Dataloader
+from enforce.core.config import ENFORCEConfig
+from enforce.core.model import ENFORCE
+from enforce.engines.evaluate import EvaluationConfig, Evaluator
+from enforce.engines.train import Trainer, TrainingConfig
+from benchmark_problems.visualization.plot_benchmarking import plot_all_results, plot_sin_ineq_results
 
 # ── Module-level seeding (must execute at import time for reproducibility) ─────
 
@@ -133,7 +133,7 @@ def _load_function_fitting_data() -> ProblemData:
 
 
 def _load_extraction_column_data() -> ProblemData:
-    from src.benchmark_problems.config_benchmarking import (
+    from benchmark_problems.config_benchmarking import (
         INPUT_DATA_PATH_TEST,
         INPUT_DATA_PATH_TRAIN,
         OUTPUT_DATA_PATH_TEST,
@@ -159,7 +159,7 @@ def _load_extraction_column_data() -> ProblemData:
 
 
 def _load_pooling_data() -> ProblemData:
-    from src.benchmark_problems.config_benchmarking import (
+    from benchmark_problems.config_benchmarking import (
         INPUT_DATA_PATH_TEST,
         INPUT_DATA_PATH_TRAIN,
         OUTPUT_DATA_PATH_TEST,
@@ -188,7 +188,7 @@ def _load_pooling_data() -> ProblemData:
 
 
 def _load_sin_ineq_data() -> ProblemData:
-    from src.benchmark_problems.config_benchmarking import (
+    from benchmark_problems.config_benchmarking import (
         SIN_INEQ_LEFT,
         SIN_INEQ_N_TEST,
         SIN_INEQ_N_TRAIN,
@@ -225,7 +225,7 @@ def _load_sin_ineq_data() -> ProblemData:
 
 
 def _load_nonconvex_data(device: str) -> ProblemData:
-    from src.benchmark_problems.config_benchmarking import INPUT_DATA_PATH, OUTPUT_DATA_PATH
+    from benchmark_problems.config_benchmarking import INPUT_DATA_PATH, OUTPUT_DATA_PATH
 
     raw = Dataloader(
         input_path=INPUT_DATA_PATH,
@@ -587,7 +587,7 @@ def _plot_results(
         supervised=SUPERVISED,
     )
     if PROBLEM == "sin_ineq":
-        from src.benchmark_problems.config_benchmarking import SIN_INEQ_LEFT, SIN_INEQ_RIGHT
+        from benchmark_problems.config_benchmarking import SIN_INEQ_LEFT, SIN_INEQ_RIGHT
 
         plot_sin_ineq_results(
             data.train_inputs,

@@ -13,9 +13,9 @@ Design notes
 import torch
 import torch.nn as nn
 
-from src.enforce.config import ENFORCEConfig
-from src.enforce.fb_inequality_constraints import FischerBurmeisterReformulation
-from src.enforce.model import ENFORCE
+from enforce.core.config import ENFORCEConfig
+from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
+from enforce.core.model import ENFORCE
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

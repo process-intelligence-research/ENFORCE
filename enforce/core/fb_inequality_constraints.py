@@ -45,7 +45,7 @@ User API
 
 2. Create the reformulation wrapper::
 
-       from src.constraints.inequality_constraints import FischerBurmeisterReformulation
+       from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
 
        fb = FischerBurmeisterReformulation(
            n_original_outputs=2,
@@ -60,7 +60,7 @@ User API
    ``fb`` parameter.  ENFORCE will build a network with ``fb.no`` output neurons
    and append zero lambda columns in ``forward()``::
 
-       from src.models.model import ENFORCE
+       from enforce.core.model import ENFORCE
 
        model = ENFORCE(c=fb, fb=fb, ...)
        # OUTPUT_NEURONS in config must equal fb.no (= 2 in this example)

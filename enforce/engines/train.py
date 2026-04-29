@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import optim
 
-from src.enforce.model import ENFORCE
+from enforce.core.model import ENFORCE
 
 
 @dataclass

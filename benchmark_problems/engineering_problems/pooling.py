@@ -1,6 +1,6 @@
 import torch
 
-from src.enforce.fb_inequality_constraints import FischerBurmeisterReformulation
+from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
 
 
 def _g1(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:

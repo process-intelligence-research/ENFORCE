@@ -3,7 +3,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from src.benchmark_problems.parametric_optimization.opt_problem import NonlinearProgram
+from benchmark_problems.parametric_optimization.opt_problem import NonlinearProgram
 
 
 class SSLConfig:

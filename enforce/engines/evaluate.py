@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from sklearn.metrics import mean_absolute_percentage_error, r2_score
 
-from src.enforce.model import ENFORCE
+from enforce.core.model import ENFORCE
 
 
 @dataclass

@@ -5,7 +5,7 @@
 
 # ENFORCE - Nonlinear Constrained Learning with Adaptive-depth Neural Projection
 
-![ENFORCE graphical abstract](docs/ENFORCE_graphical_abstract.png)
+![ENFORCE graphical abstract](static/ENFORCE_graphical_abstract.png)
 
 [![arXiv](https://img.shields.io/badge/arXiv-2502.06774-b31b1b.svg)](https://arxiv.org/abs/2502.06774)
 

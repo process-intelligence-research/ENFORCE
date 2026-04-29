@@ -208,7 +208,7 @@ class TestProjectionIterationsAveraged:
         Trainer(model, TrainingConfig(epochs=3, batch_size=64)).fit(x, y)
         for entry in model.losses:
             pi = entry["projection_iterations"]
-            assert isinstance(pi, (int, float))
+            assert isinstance(pi, int | float)
 
     def test_proj_iter_positive_when_projecting(self):
         """With ada_np_auto_activation=False the projection always runs."""

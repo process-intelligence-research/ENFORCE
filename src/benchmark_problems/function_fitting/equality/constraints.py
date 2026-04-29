@@ -1,5 +1,6 @@
 import torch
 
+
 def constraint_function(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     y1 = y[:, 0]
     y2 = y[:, 1]

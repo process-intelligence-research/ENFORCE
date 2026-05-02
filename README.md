@@ -62,7 +62,7 @@ By default this resolves PyTorch from the CPU index (configured in `pyproject.to
 ### From source
 
 ```
-git clone https://github.com/giacomolastrucci/ENFORCE
+git clone https://github.com/process-intelligence-research/ENFORCE
 cd ENFORCE
 pip install -e .
 # or

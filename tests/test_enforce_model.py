@@ -94,8 +94,11 @@ class TestArchitecture:
     def test_hidden_layer_shape(self):
         cfg = ENFORCEConfig(hidden_neurons=128, output_neurons=3)
         model = _make_model(cfg, nc=1)
-        assert model.hidden_layer.in_features == 128
-        assert model.hidden_layer.out_features == 128
+        assert isinstance(model.hidden_layers, nn.ModuleList)
+        assert len(model.hidden_layers) == cfg.hidden_layers
+        for layer in model.hidden_layers:
+            assert layer.in_features == 128
+            assert layer.out_features == 128
 
     def test_output_layer_shape(self):
         cfg = ENFORCEConfig(hidden_neurons=64, output_neurons=9)

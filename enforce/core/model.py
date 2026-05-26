@@ -153,7 +153,9 @@ class ENFORCE(nn.Module):
         n_net_outputs = fb.no if fb is not None else cfg.output_neurons
 
         self.input_layer = nn.Linear(cfg.input_neurons, cfg.hidden_neurons)
-        self.hidden_layer = nn.Linear(cfg.hidden_neurons, cfg.hidden_neurons)
+        self.hidden_layers = nn.ModuleList(
+            [nn.Linear(cfg.hidden_neurons, cfg.hidden_neurons) for _ in range(cfg.hidden_layers)]
+        )
         self.hidden_activation = nn.ReLU()
         self.output_layer = nn.Linear(cfg.hidden_neurons, n_net_outputs)
         self.loss_function = nn.MSELoss()
@@ -216,8 +218,8 @@ class ENFORCE(nn.Module):
     def forward(self, x):
         x = self.input_layer(x)
         x = self.hidden_activation(x)
-        for i in range(self.cfg.hidden_layers):
-            x = self.hidden_layer(x)
+        for layer in self.hidden_layers:
+            x = layer(x)
             x = self.hidden_activation(x)
         x = self.output_layer(x)
         if self.fb is not None:

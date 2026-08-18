@@ -281,7 +281,9 @@ This research is supported by Shell Global Solutions International B.V., for whi
 
 ## License
 
-MIT - see `LICENSE`.
+This work is licensed under a MIT license - see `LICENSE`.
+
+Technische Universiteit Delft hereby disclaims all copyright interest in the program “ENFORCE” written by Artur M. Schweidtmann. Paulien Herder, Dean of Applied Science
 
 **Copyright (C) 2025 Artur Schweidtmann, TU Delft**  
 

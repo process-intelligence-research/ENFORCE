@@ -1,6 +1,7 @@
 training_output/
 /data/
 .ruff_cache/
+release.sh
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

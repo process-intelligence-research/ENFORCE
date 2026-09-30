@@ -37,7 +37,9 @@ Source = "https://github.com/process-intelligence-research/ENFORCE"
 [dependency-groups]
 dev = [
     "pytest>=8.2",
+    "scipy>=1.11",
     "coverage>=7.5",
+    "coverage-badge>=1.1",
     "ruff>=0.3",
     "pyright>=1.1",
     "sphinx>=7.3",
@@ -63,6 +65,13 @@ addopts = "-m 'not slow'"
 markers = [
     "slow: marks tests as slow — full training runs (select with -m slow)",
 ]
+
+[tool.coverage.run]
+source = ["enforce"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
 
 [tool.ruff]
 line-length = 120

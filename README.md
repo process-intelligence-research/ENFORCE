@@ -8,6 +8,9 @@
 ![ENFORCE graphical abstract](https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/ENFORCE_graphical_abstract.png)
 
 [![arXiv](https://img.shields.io/badge/arXiv-2502.06774-b31b1b.svg)](https://arxiv.org/abs/2502.06774)
+[![PyPI](https://img.shields.io/pypi/v/enforce-nn.svg)](https://pypi.org/project/enforce-nn/)
+[![GitHub release](https://img.shields.io/github/v/release/process-intelligence-research/ENFORCE.svg)](https://github.com/process-intelligence-research/ENFORCE/releases)
+[![Coverage](https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/badges/coverage.svg)](https://github.com/process-intelligence-research/ENFORCE/actions)
 
 **Nonlinear Constrained Learning with Adaptive-depth Neural Projection.**
 

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests with coverage
+        run: uv run coverage run -m pytest
+
+      - name: Generate and publish coverage badge
+        if: github.event_name == 'push'
+        run: |
+          uv run coverage-badge -o /tmp/coverage.svg -f
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin
+          if git ls-remote --exit-code origin badges; then
+            git checkout -B badges origin/badges
+          else
+            git checkout --orphan badges
+            git rm -rf . --quiet
+          fi
+          cp /tmp/coverage.svg coverage.svg
+          git add coverage.svg
+          git diff --staged --quiet || git commit -m "chore: update coverage badge"
+          git push origin badges

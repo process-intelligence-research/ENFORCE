@@ -1,11 +1,19 @@
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import torch
 from torch import optim
+from torch.nn import Module
 
-from enforce.core.model import ENFORCE
+# Local imports
+from enforce.core.scaler import Scaler
+from enforce.core.constraints import Constraints
+from enforce.losses.enforce_loss import ENFORCELoss, ENFORCESSLLoss
+from enforce.losses.loss_core import LossCore, SSLLossCore
+from enforce.engines._checks import check_model_loss
+from enforce.models import ConstrainedModel
+from enforce.models.constrained_model import ENFORCEConstrainedModel
 
 
 @dataclass
@@ -22,46 +30,49 @@ class TrainingConfig:
         Adam learning rate.
     random_seed :
         Seed for data-shuffle reproducibility.
-    soft_inequalities :
-        List of inequality callables ``g_i(x, y) <= 0``.  When provided
-        together with ``soft_weight > 0`` and an unconstrained model, a
-        penalty ``soft_weight * mean(max(0, g_i)^2)`` is added to the loss.
-    soft_weight :
-        Coefficient for the soft inequality penalty.
-    n_original_outputs :
-        For FB problems, the number of *original* outputs (``fb.no``), used
-        to strip the appended lambda columns before evaluating soft penalties.
-        ``None`` means no stripping (non-FB problems).
     """
 
     batch_size: int = 200
     epochs: int = 1000
     learning_rate: float = 1e-3
     random_seed: int = 42
-    soft_inequalities: list[callable] | None = field(default=None, repr=False)
-    soft_weight: float = 0.0
-    n_original_outputs: int | None = None
 
 
 class Trainer:
-    """Trains an :class:`ENFORCE` model given a :class:`TrainingConfig`.
+    """Trains a plain backbone or a :class:`ConstrainedModel` given a :class:`TrainingConfig`.
 
     Usage::
 
         cfg = TrainingConfig(batch_size=64, epochs=1200, learning_rate=1e-4)
-        model = Trainer(model, cfg).fit(train_inputs, train_outputs)
+        model = Trainer(model, loss_fn, scaler, constraints, cfg).fit(train_inputs, train_outputs)
 
     Parameters
     ----------
     model :
-        An instantiated :class:`ENFORCE` model.
+        An instantiated :class:`nn.Module` or :class:`ConstrainedModel`.
+    loss_fn :
+        An instantiated :class:`LossCore` or :class:`SSLLossCore` loss function.
+    scaler : Scaler
+        :class:`Scaler` object for input/output normalisation.
+    constraints : Constraints
+        :class:`Constraints` object for constraint residual calculation.
     config :
         Training hyperparameters.
     """
 
-    def __init__(self, model: ENFORCE, config: TrainingConfig):
-        self.model = model
-        self.config = config
+    def __init__(self,
+                 model: Module | ConstrainedModel,
+                 loss_fn: LossCore | SSLLossCore,
+                 scaler: Scaler,
+                 constraints: Constraints,
+                 config: TrainingConfig):
+        check_model_loss(model, loss_fn)
+
+        self.scaler: Scaler = scaler
+        self.constraints: Constraints = constraints
+        self.model: Module | ConstrainedModel = model
+        self.loss_fn: LossCore | SSLLossCore = loss_fn
+        self.config: TrainingConfig = config
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -69,14 +80,17 @@ class Trainer:
         self,
         train_inputs: torch.Tensor,
         train_outputs: torch.Tensor,
-    ) -> ENFORCE:
+    ) -> Module:
         """Train the model and return it."""
         self._seed()
         optimizer = optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
         self.model.train()
 
         for epoch in range(self.config.epochs):
-            self.model.epoch = epoch
+            if isinstance(self.model, ConstrainedModel):
+                self.model.constraint_module.epoch = epoch
+            else:
+                self.model.epoch = epoch
             inputs_s, outputs_s = self._shuffle(train_inputs, train_outputs, epoch)
             stats = self._run_epoch(inputs_s, outputs_s, optimizer)
             self._record(stats)
@@ -111,18 +125,25 @@ class Trainer:
         n = inputs.size(0)
         n_batches = (n + cfg.batch_size - 1) // cfg.batch_size
 
-        totals: dict = {
-            "loss": 0.0,
-            "loss_displacement": 0.0,
-            "loss_data_after": 0.0,
-            "loss_data_before": 0.0,
-            "proj_iter": 0.0,
-            "constraint_avg": 0.0,
-            "constraint_max": 0.0,
-            "obj_opt": 0.0,
-            "obj_pred": 0.0,
-        }
-        is_opt = self.model.ssl_loss is not None
+        if isinstance(self.model, ConstrainedModel):
+            totals: dict = {
+                "loss": 0.0,
+                "loss_displacement": 0.0,
+                "loss_data_after": 0.0,
+                "loss_data_before": 0.0,
+                "proj_iter": 0.0,
+                "constraint_avg": 0.0,
+                "constraint_max": 0.0,
+                "obj_opt": 0.0,
+                "obj_pred": 0.0,
+            }
+        else:
+            totals = {
+                "loss": 0.0,
+                "loss_data_before": 0.0,
+            }
+
+        is_opt = isinstance(self.loss_fn, SSLLossCore)
 
         for i in range(n_batches):
             b_in = inputs[i * cfg.batch_size : (i + 1) * cfg.batch_size]
@@ -141,89 +162,125 @@ class Trainer:
         is_opt: bool,
     ) -> dict:
         """One mini-batch forward + backward; returns raw (un-averaged) values."""
-        cfg = self.config
-
         optimizer.zero_grad()
-        loss, loss_data_after, loss_displacement, loss_data_before, ytilde, yhat, proj_iter = self.model.loss(
-            b_in, b_out
-        )
+        proj_iter = 0
 
-        if cfg.soft_inequalities is not None and cfg.soft_weight > 0.0:
-            loss = loss + self._soft_penalty(b_in, yhat)
+        # Return the extended ytilde and yhat tensors depending on the model type
+        if isinstance(self.model, ENFORCEConstrainedModel):
+            ytilde, yhat, proj_iter = self.model.predict(x=b_in, y=b_out)
+        elif isinstance(self.model, ConstrainedModel):
+            ytilde, yhat = self.model(x=b_in)
+            if yhat.shape[1] != self.scaler.no:
+                yhat = self.constraints.extend_outputs(y=yhat)
+            if ytilde.shape[1] != self.scaler.no:
+                ytilde = self.constraints.extend_outputs(y=ytilde)
+        elif isinstance(self.model, Module):
+            yhat = self.model(x=b_in)
+            if yhat.shape[1] != self.scaler.no:
+                yhat = self.constraints.extend_outputs(y=yhat)
+            ytilde = yhat
+        else:
+            raise NotImplementedError(f"Training not implemented for model type {type(self.model)}")
+
+        # Compute loss depending on the loss function type
+        if isinstance(self.loss_fn, ENFORCELoss) or isinstance(self.loss_fn, ENFORCESSLLoss):
+            loss, loss_data_after, loss_displacement, loss_data_before = self.loss_fn.loss(
+                ytilde=ytilde, yhat=yhat, y=b_out, x=b_in
+            )
+        elif isinstance(self.loss_fn, LossCore):
+            loss = self.loss_fn(yhat=yhat, y=b_out, x=b_in)
+        elif isinstance(self.loss_fn, SSLLossCore):
+            loss = self.loss_fn(x=b_in, yhat=yhat)
+        else:
+            raise NotImplementedError(f"Training not implemented for loss function type {type(self.loss_fn)}")
 
         loss.backward()
         optimizer.step()
 
-        x_u, y_u = self.model.unscale(b_in, b_out)
-        _, ytilde_u = self.model.unscale(b_in, ytilde)
-        c_res = self.model.c(x_u, ytilde_u)
-        c_avg = torch.mean(torch.abs(c_res)).item()
-        c_max = torch.max(torch.abs(c_res)).item()
+        if isinstance(self.model, ConstrainedModel):
+            x_u, y_u = self.scaler.unscale(b_in, b_out)
+            _, ytilde_u = self.scaler.unscale(b_in, ytilde)
+            c_res = self.constraints(x_u, ytilde_u)
+            c_avg = torch.mean(torch.abs(c_res)).item()
+            c_max = torch.max(torch.abs(c_res)).item()
+            if is_opt:
+                _, yhat_u = self.scaler.unscale(b_in, yhat)
+                obj_opt = self.loss_fn.ssl_loss(x_u, y_u).item()
+                obj_pred = self.loss_fn.ssl_loss(x_u, ytilde_u).item()
+                loss_data_after_val = obj_pred
+                loss_data_before_val = self.loss_fn.ssl_loss(x_u, yhat_u).item()
+            else:
+                obj_opt = obj_pred = 0.0
+                loss_data_after_val = loss_data_after.item()
+                loss_data_before_val = loss_data_before.item()
 
-        if is_opt:
-            _, yhat_u = self.model.unscale(b_in, yhat)
-            obj_opt = self.model.ssl_loss(x_u, y_u).item()
-            obj_pred = self.model.ssl_loss(x_u, ytilde_u).item()
-            loss_data_after_val = obj_pred
-            loss_data_before_val = self.model.ssl_loss(x_u, yhat_u).item()
+            batch_return = {
+                "loss": loss.item(),
+                "loss_displacement": loss_displacement.item(),
+                "loss_data_after": loss_data_after_val,
+                "loss_data_before": loss_data_before_val,
+                "proj_iter": proj_iter,
+                "constraint_avg": c_avg,
+                "constraint_max": c_max,
+                "obj_opt": obj_opt,
+                "obj_pred": obj_pred,
+                }
+            return batch_return
+
         else:
-            obj_opt = obj_pred = 0.0
-            loss_data_after_val = loss_data_after.item()
-            loss_data_before_val = loss_data_before.item()
-
-        return {
-            "loss": loss.item(),
-            "loss_displacement": loss_displacement.item(),
-            "loss_data_after": loss_data_after_val,
-            "loss_data_before": loss_data_before_val,
-            "proj_iter": proj_iter,
-            "constraint_avg": c_avg,
-            "constraint_max": c_max,
-            "obj_opt": obj_opt,
-            "obj_pred": obj_pred,
-        }
-
-    def _soft_penalty(self, b_in: torch.Tensor, yhat: torch.Tensor) -> torch.Tensor:
-        cfg = self.config
-        x_u, yhat_u = self.model.unscale(b_in, yhat)
-        no = cfg.n_original_outputs if cfg.n_original_outputs is not None else yhat_u.shape[1]
-        y_raw = yhat_u[:, :no]
-        return cfg.soft_weight * sum(
-            torch.mean(torch.clamp(g_i(x_u, y_raw), min=0.0) ** 2) for g_i in cfg.soft_inequalities
-        )
+            if is_opt:
+                x_u, yhat_u = self.scaler.unscale(b_in, yhat)
+                loss_data = self.loss_fn.ssl_loss(x_u, yhat_u).item()
+            else:
+                # Data term only (e.g. without the penalty of SoftConstrainedLoss)
+                loss_data = self.loss_fn.data_loss(yhat, b_out).item()
+            return {
+                "loss": loss.item(),
+                "loss_data_before": loss_data,
+            }
 
     def _record(self, stats: dict):
         """Append one epoch's stats to ``model.losses``."""
-        if not self.model.constrained:
-            entry = {"loss_unconstrained": stats["loss_data_after"]}
-        else:
+        if isinstance(self.model, ConstrainedModel):
             entry = {
                 "loss_data_after_projection": stats["loss_data_after"],
                 "loss_displacement": stats["loss_displacement"],
                 "loss_data_before_projection": stats["loss_data_before"],
                 "projection_iterations": stats["proj_iter"],
             }
-            if self.model.ssl_loss is not None:
+            if isinstance(self.loss_fn, SSLLossCore):
                 entry.update(
                     {
                         "objective_value_optimization": stats["obj_opt"],
                         "objective_value_prediction": stats["obj_pred"],
                     }
                 )
-        self.model.losses.append(entry)
+        else:
+            entry = {"loss_unconstrained": stats["loss_data_before"]}
+        self.loss_fn.losses.append(entry)
 
     def _log(self, epoch: int, stats: dict):
-        is_opt = self.model.ssl_loss is not None
+        is_opt = isinstance(self.loss_fn, SSLLossCore)
         log_this_epoch = (is_opt and (epoch + 1) % 1 == 0) or (epoch + 1) % 100 == 0
         if not log_this_epoch:
             return
-        msg = (
-            f"Epoch {epoch + 1}/{self.config.epochs}, "
-            f"Loss: {stats['loss']:.2e}, "
-            f"LossDispl: {stats['loss_displacement']:.2e}, "
-            f"EqMeanResidual: {stats['constraint_avg']:.2e}, "
-            f"EqMaxResidual: {stats['constraint_max']:.2e}"
-        )
+        if isinstance(self.model, ConstrainedModel):
+            msg = (
+                f"Epoch {epoch + 1}/{self.config.epochs}, "
+                f"Loss: {stats['loss']:.2e}, "
+                f"LossDispl: {stats['loss_displacement']:.2e}, "
+                f"ProjectionIter: {stats['proj_iter']:.1f}, "
+                f"EqMeanResidual: {stats['constraint_avg']:.2e}, "
+                f"EqMaxResidual: {stats['constraint_max']:.2e}"
+            )
+        else:
+            msg = (
+                f"Epoch {epoch + 1}/{self.config.epochs}, "
+                f"Loss: {stats['loss']:.2e}"
+            )
         if is_opt:
-            msg += f", ObjValueOpt: {stats['obj_opt']:.2e}, ObjValuePred: {stats['obj_pred']:.2e}"
+            if isinstance(self.model, ConstrainedModel):
+                msg += f", ObjValueOpt: {stats['obj_opt']:.2e}, ObjValuePred: {stats['obj_pred']:.2e}"
+            else:
+                msg += f", Data loss: {stats['loss_data_before']:.2e}"
         print(msg)

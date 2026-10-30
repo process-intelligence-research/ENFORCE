@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -26,13 +28,39 @@ jobs:
       - name: Run tests with coverage
         run: uv run coverage run -m pytest
 
-      - name: Generate and publish coverage badge
+      - name: Generate coverage badge
         if: github.event_name == 'push'
+        run: uv run coverage-badge -o coverage.svg -f
+
+      - name: Upload coverage badge
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge
+          path: coverage.svg
+
+  badge:
+    # Publishes the badge with write access, without running the project's code or dependencies
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download coverage badge
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-badge
+          path: /tmp
+
+      - name: Publish coverage badge
         run: |
-          uv run coverage-badge -o /tmp/coverage.svg -f
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin
+          git reset --hard --quiet
           if git ls-remote --exit-code origin badges; then
             git checkout -B badges origin/badges
           else
@@ -43,3 +71,26 @@ jobs:
           git add coverage.svg
           git diff --staged --quiet || git commit -m "chore: update coverage badge"
           git push origin badges
+
+  package:
+    # Build the distribution and test the installed wheel from outside the checkout, as users get it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Install the wheel in a clean environment (CPU PyTorch first, as in the README)
+        run: |
+          uv venv /tmp/venv --python 3.11
+          uv pip install --python /tmp/venv/bin/python torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install --python /tmp/venv/bin/python dist/*.whl
+
+      - name: Import and run a constrained prediction
+        run: |
+          cp .github/scripts/smoke_test.py /tmp/smoke_test.py
+          cd /tmp && /tmp/venv/bin/python smoke_test.py

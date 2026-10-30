@@ -1,0 +1,36 @@
+name: Bug report
+description: Something does not work, or a constraint is not satisfied
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead (include the full error message if any).
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Minimal reproducible example
+      description: A short script that reproduces the problem, with the constraint definition and the seed you used.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: numerics
+    attributes:
+      label: Numerical details (if relevant)
+      description: For constraint violations, divergence or NaNs.
+      value: |
+        - Expected tolerance (e.g. inference_tolerance):
+        - Observed residual / violation:
+        - Device and dtype (e.g. CPU float32, CUDA float64):
+        - Seed:
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "Output of: python -c \"import enforce, torch, sys; print(enforce.__version__, torch.__version__, sys.version)\", and your OS"
+    validations:
+      required: true

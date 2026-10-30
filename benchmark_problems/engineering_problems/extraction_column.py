@@ -1,5 +1,7 @@
 import torch
 
+from enforce.core.constraints import Constraint, Constraints
+
 
 def constraints_column(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     x1 = x[:, 0]
@@ -24,3 +26,8 @@ def constraints_column(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     c6 = x3*y1 - y9
     
     return c1, c2, c3, c4, c5, c6
+
+
+def make_extraction_column_constraints() -> Constraints:
+    """The six equalities of the extraction column as one block."""
+    return Constraints(c=[Constraint(constraints_column, size=6)])

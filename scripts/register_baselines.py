@@ -22,9 +22,9 @@ FIXTURES_DIR = ROOT / "tests" / "fixtures" / "benchmark_baselines"
 # For each problem, the subdirectory inside training_output/ where run_* dirs live.
 _PROBLEM_DIRS: dict[str, Path] = {
     "function_fitting": ROOT / "training_output" / "function_fitting",
-    "extraction_column": ROOT / "training_output" / "extraction_column" / "extraction_column",
-    "pooling": ROOT / "training_output" / "pooling" / "pooling",
-    "sin_ineq": ROOT / "training_output" / "sin_ineq" / "sin_ineq",
+    "extraction_column": ROOT / "training_output" / "extraction_column",
+    "pooling": ROOT / "training_output" / "pooling",
+    "sin_ineq": ROOT / "training_output" / "sin_ineq",
     "nonconvex_linear": ROOT / "training_output" / "50" / "nonconvex_linear",
     "nonconvex_nonlinear": ROOT / "training_output" / "50" / "nonconvex_nonlinear",
 }

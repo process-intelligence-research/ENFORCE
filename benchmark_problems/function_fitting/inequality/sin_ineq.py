@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
+from enforce.core.constraints import Constraints
 
 
 def _g_upper(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -16,7 +16,7 @@ def _g_lower(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 
 def make_sin_ineq_constraints():
-    """Build the FB wrapper for the sinusoidal inequality demo.
+    """Build the constraints wrapper for the sinusoidal inequality demo.
 
     Problem: 1 input (x), 1 output (y).
 
@@ -37,13 +37,9 @@ def make_sin_ineq_constraints():
 
     Returns
     -------
-    fb : FischerBurmeisterReformulation
-        Wrapper with n_original_outputs=1, n_ineq=2.
-    c  : FischerBurmeisterReformulation
-        Constraint callable (same object — no separate equality constraints).
+    constraints : Constraints
+        Inequality constraint object with two inequality functions.
+        ENFORCE derives the extended output width from its
+        inequality count and the supplied scaler.
     """
-    fb = FischerBurmeisterReformulation(
-        n_original_outputs=1,
-        inequalities=[_g_upper, _g_lower],
-    )
-    return fb, fb
+    return Constraints(g=[_g_upper, _g_lower])

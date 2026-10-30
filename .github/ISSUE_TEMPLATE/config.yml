@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/process-intelligence-research/ENFORCE/blob/main/CONTRIBUTING.md
+    about: Development setup, checks and how to propose changes.

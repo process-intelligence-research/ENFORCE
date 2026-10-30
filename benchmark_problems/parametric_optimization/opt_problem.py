@@ -2,6 +2,8 @@ import pickle
 
 import torch
 
+from enforce.core.constraints import Constraint, Constraints
+
 
 class NonlinearProgram:
     def __init__(self, params_path: str):
@@ -70,11 +72,15 @@ class NonlinearProgram:
 
         return term1 + term2
 
-    def jacobian(self, y):
+    def jacobian(self, x, y):
         # using einsum to avoid any broadcasting pitfalls:
         #   out[b,i,j] = sum_{k} Msym[i,j,k] * y[b,k]
-        # yields (BS,NC,NO)
+        # yields (BS,NC,NO); assumes symmetric A_i (true for the generated parameters)
         return 2 * torch.einsum("ijk,bk->bij", self._A, y) + self._c.unsqueeze(0)
+
+    def constraints(self) -> Constraints:
+        """All equalities as one vectorised block with the analytical Jacobian."""
+        return Constraints(c=[Constraint(self.eq_constraints, size=self._c.shape[0], jac=self.jacobian)])
 
 
 class NonconvexProgram:
@@ -124,9 +130,13 @@ class NonconvexProgram:
 
         return term1 + term2
 
-    def jacobian(self, y):
+    def jacobian(self, x, y):
         # yields (BS,NC,NO)
         bs = y.shape[0]
         # self._c.shape = (NC, NO)
         # repeat along batch dimension
         return self._c.unsqueeze(0).expand(bs, -1, -1)
+
+    def constraints(self) -> Constraints:
+        """All equalities as one vectorised block with the analytical Jacobian."""
+        return Constraints(c=[Constraint(self.eq_constraints, size=self._c.shape[0], jac=self.jacobian)])

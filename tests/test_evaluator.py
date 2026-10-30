@@ -11,375 +11,146 @@ Design notes
 """
 
 import dataclasses
+import warnings
 
 import numpy as np
+import pytest
 import torch
 import torch.nn as nn
 
-from enforce.core.config import ENFORCEConfig
-from enforce.core.model import ENFORCE
+from enforce import ENFORCE, Constraints, ENFORCEConfig, ENFORCELoss, Scaler
 from enforce.engines.evaluate import EvalResult, EvaluationConfig, Evaluator
-from enforce.engines.train import Trainer, TrainingConfig
+from enforce.losses import MSELoss, SoftConstrainedLoss
+from enforce.models import MLP, ENFORCEConstrainedMLP, MLPConfig
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _system(constrained=False, no=3, inequalities=None):
+    scaler = Scaler((torch.zeros(2), torch.ones(2)), (torch.zeros(no), torch.ones(no)))
+    constraints = Constraints(c=[lambda x, y: y[:, 0] - y[:, 1]], g=inequalities)
+    loss = ENFORCELoss(scaler, constraints) if constrained else MSELoss()
+    cfg = MLPConfig(2, 10, no, 1, 4)
+    if constrained:
+        layer = ENFORCE(scaler, constraints, loss, ENFORCEConfig(epoch_start_hard_constrained=10))
+        model = ENFORCEConstrainedMLP(cfg, layer)
+    else:
+        model = MLP(cfg)
+    return scaler, constraints, model, loss
 
 
-def _scaling(n: int):
-    return (
-        torch.zeros(n, dtype=torch.float32),
-        torch.ones(n, dtype=torch.float32),
+def test_evaluation_config_contains_only_batch_setting():
+    assert dataclasses.is_dataclass(EvaluationConfig)
+    assert EvaluationConfig().batch_size is None
+    assert EvaluationConfig(batch_size=7).batch_size == 7
+    assert {field.name for field in dataclasses.fields(EvaluationConfig)} == {"batch_size"}
+
+
+def test_evaluator_returns_numpy_predictions_and_metrics():
+    scaler, constraints, model, loss = _system()
+    x, y = torch.randn(13, 2), torch.randn(13, 3)
+    result = Evaluator(model, loss, scaler, constraints, EvaluationConfig(batch_size=5)).evaluate(x, y)
+    assert isinstance(result, EvalResult)
+    assert isinstance(result.predictions, np.ndarray)
+    assert result.predictions.shape == result.predictions_before_proj.shape == (13, 3)
+    assert "r2_y1" in result.metrics and "mse_y3" in result.metrics
+    assert "residual_avg" in result.metrics and "residual_max" in result.metrics
+
+
+def test_evaluator_handles_single_batch_and_partial_final_batch():
+    scaler, constraints, model, loss = _system()
+    x, y = torch.randn(11, 2), torch.randn(11, 3)
+    full = Evaluator(model, loss, scaler, constraints, EvaluationConfig()).evaluate(x, y)
+    batched = Evaluator(model, loss, scaler, constraints, EvaluationConfig(batch_size=4)).evaluate(x, y)
+    np.testing.assert_allclose(full.predictions, batched.predictions, atol=1e-6)
+
+
+def test_evaluator_supports_models_without_constraints():
+    scaler = Scaler((torch.zeros(2), torch.ones(2)), (torch.zeros(3), torch.ones(3)))
+    constraints = Constraints(c=[], g=[])
+    model = MLP(MLPConfig(2, 8, 3, 1, 4))
+    x, y = torch.randn(5, 2), torch.randn(5, 3)
+
+    result = Evaluator(model, MSELoss(), scaler, constraints, EvaluationConfig()).evaluate(x, y)
+
+    assert result.metrics["residual_avg"] == 0.0
+    assert result.metrics["residual_max"] == 0.0
+    assert result.predictions.shape == (5, 3)
+
+
+def test_constrained_evaluator_returns_prediction_after_constraint_module():
+    scaler, constraints, model, loss = _system(constrained=True)
+    x, y = torch.randn(8, 2), torch.randn(8, 3)
+    result = Evaluator(model, loss, scaler, constraints, EvaluationConfig(batch_size=4)).evaluate(x, y)
+    assert result.predictions.shape == (8, 3)
+    assert result.metrics["projection iterations"] == 0
+
+
+def test_evaluator_reports_inequality_violation_metrics_and_extracts_original_outputs():
+    def g(x, y):
+        return y[:, 0] - 0.5
+
+    scaler, constraints, model, loss = _system(inequalities=[g])
+    x, y = torch.randn(9, 2), torch.randn(9, 3)
+    result = Evaluator(model, loss, scaler, constraints, EvaluationConfig()).evaluate(x, y)
+    assert result.predictions.shape == (9, 2)
+    assert "ineq_g1_infeasible_pct" in result.metrics
+    assert "ineq_g1_mean_violation" in result.metrics
+    assert "ineq_g1_max_violation" in result.metrics
+
+
+def test_evaluator_uses_scaler_to_return_unscaled_predictions():
+    scaler = Scaler(
+        (torch.tensor([2.0]), torch.tensor([4.0])),
+        (torch.tensor([10.0, -3.0]), torch.tensor([2.0, 5.0])),
     )
-
-
-def _linear_constraint(nc: int):
-    def c(x, y):
-        return y[:, :nc]
-
-    return c
-
-
-def _make_scaling_params(ni: int, no: int) -> dict:
-    return {
-        "input_mean": np.zeros(ni, dtype=np.float32),
-        "input_std": np.ones(ni, dtype=np.float32),
-        "output_mean": np.zeros(no, dtype=np.float32),
-        "output_std": np.ones(no, dtype=np.float32),
-    }
-
-
-def _make_model(
-    ni: int = 2,
-    no: int = 4,
-    nc: int = 1,
-    constrained: bool = True,
-    seed: int = 0,
-    ssl_loss=None,
-) -> ENFORCE:
-    cfg = ENFORCEConfig(
-        input_neurons=ni,
-        hidden_neurons=16,
-        output_neurons=no,
-        hidden_layers=1,
-        random_seed=seed,
-        ada_np_auto_activation=False,
+    constraints = Constraints(c=[lambda x, y: y[:, 0] - y[:, 1]])
+    model = MLP(MLPConfig(1, 2, 2))
+    with torch.no_grad():
+        model.output_layer.weight.zero_()
+        model.output_layer.bias.zero_()
+    result = Evaluator(model, MSELoss(), scaler, constraints, EvaluationConfig()).evaluate(
+        torch.zeros(4, 1), torch.zeros(4, 2)
     )
-    return ENFORCE(
-        scaling_input=_scaling(ni),
-        scaling_output=_scaling(no),
-        c=_linear_constraint(nc),
-        config=cfg,
-        constrained=constrained,
-        ssl_loss=ssl_loss,
-    )
-
-
-def _trained_model(**model_kwargs) -> ENFORCE:
-    ni = model_kwargs.get("ni", 2)
-    no = model_kwargs.get("no", 4)
-    model = _make_model(**model_kwargs)
-    x = torch.randn(64, ni)
-    y = torch.randn(64, no)
-    Trainer(model, TrainingConfig(epochs=3, batch_size=64)).fit(x, y)
-    return model
-
-
-def _test_tensors(n: int = 40, ni: int = 2, no: int = 4):
-    torch.manual_seed(99)
-    return torch.randn(n, ni), torch.randn(n, no)
-
-
-class _MockSSLLoss(nn.Module):
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return torch.mean(y**2)
-
-
-# ── EvaluationConfig ──────────────────────────────────────────────────────────
-
-
-class TestEvaluationConfigDefaults:
-    def test_is_dataclass(self):
-        assert dataclasses.is_dataclass(EvaluationConfig)
-
-    def test_defaults(self):
-        cfg = EvaluationConfig()
-        assert cfg.batch_size is None
-        assert cfg.n_original_outputs is None
-        assert cfg.inequalities is None
-
-    def test_fields_present(self):
-        expected = {"batch_size", "n_original_outputs", "inequalities"}
-        assert {f.name for f in dataclasses.fields(EvaluationConfig)} == expected
-
-    def test_custom_values(self):
-        cfg = EvaluationConfig(batch_size=32, n_original_outputs=3)
-        assert cfg.batch_size == 32
-        assert cfg.n_original_outputs == 3
-
-
-# ── EvalResult ────────────────────────────────────────────────────────────────
-
-
-class TestEvalResult:
-    def test_is_dataclass(self):
-        assert dataclasses.is_dataclass(EvalResult)
-
-    def test_fields(self):
-        expected = {"metrics", "predictions", "predictions_before_proj"}
-        assert {f.name for f in dataclasses.fields(EvalResult)} == expected
-
-    def test_construction(self):
-        r = EvalResult(
-            metrics={"r2_y1": 0.9},
-            predictions=np.zeros((10, 2)),
-            predictions_before_proj=np.zeros((10, 2)),
-        )
-        assert r.metrics["r2_y1"] == 0.9
-        assert r.predictions.shape == (10, 2)
-
-
-# ── Evaluator — basic contract ────────────────────────────────────────────────
-
-
-class TestEvaluatorContract:
-    def test_returns_eval_result(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert isinstance(result, EvalResult)
-
-    def test_predictions_shape(self):
-        model = _trained_model(no=4)
-        x, y = _test_tensors(n=40, no=4)
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert result.predictions.shape == (40, 4)
-
-    def test_before_proj_shape_matches_predictions(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert result.predictions_before_proj.shape == result.predictions.shape
-
-    def test_predictions_are_numpy(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert isinstance(result.predictions, np.ndarray)
-        assert isinstance(result.predictions_before_proj, np.ndarray)
-
-    def test_model_set_to_eval_mode(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert not model.training
-
-
-# ── Metrics keys ──────────────────────────────────────────────────────────────
-
-
-class TestMetricsKeys:
-    def test_always_present_keys(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        m = result.metrics
-        assert "projection iterations" in m
-        assert "inference time" in m
-        assert "residual_avg" in m
-        assert "residual_max" in m
-
-    def test_per_output_keys_all_outputs(self):
-        model = _trained_model(no=4)
-        x, y = _test_tensors(no=4)
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        m = result.metrics
-        for i in range(1, 5):
-            assert f"r2_y{i}" in m
-            assert f"mse_y{i}" in m
-            assert f"nrmse_y{i}" in m
-            assert f"mape_y{i}" in m
-
-    def test_n_original_outputs_limits_per_output_keys(self):
-        """With n_original_outputs=2, only y1 and y2 metrics appear."""
-        model = _trained_model(no=4)
-        x, y = _test_tensors(no=4)
-        sp = _make_scaling_params(2, 4)
-        cfg = EvaluationConfig(n_original_outputs=2)
-        result = Evaluator(model, cfg).evaluate(x, y, sp)
-        m = result.metrics
-        assert "r2_y1" in m and "r2_y2" in m
-        assert "r2_y3" not in m and "r2_y4" not in m
-
-    def test_ssl_keys_absent_without_ssl_loss(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert "obj_value_opt" not in result.metrics
-        assert "obj_value_pred" not in result.metrics
-
-    def test_ssl_keys_present_with_ssl_loss(self):
-        model = _trained_model(ssl_loss=_MockSSLLoss())
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert "obj_value_opt" in result.metrics
-        assert "obj_value_pred" in result.metrics
-
-    def test_inequality_keys_absent_without_config(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert not any(k.startswith("ineq_") for k in result.metrics)
-
-    def test_inequality_keys_present_when_configured(self):
-        def g1(x, y):
-            return y[:, 0] - 1.0
-
-        def g2(x, y):
-            return -y[:, 1]
-
-        model = _trained_model(no=4)
-        x, y = _test_tensors(no=4)
-        sp = _make_scaling_params(2, 4)
-        cfg = EvaluationConfig(inequalities=[g1, g2])
-        result = Evaluator(model, cfg).evaluate(x, y, sp)
-        m = result.metrics
-        for i in (1, 2):
-            assert f"ineq_g{i}_infeasible_pct" in m
-            assert f"ineq_g{i}_mean_violation" in m
-            assert f"ineq_g{i}_max_violation" in m
-
-
-# ── Metric value sanity ───────────────────────────────────────────────────────
-
-
-class TestMetricValues:
-    def test_residual_avg_non_negative(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert result.metrics["residual_avg"] >= 0.0
-
-    def test_residual_max_gte_avg(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert result.metrics["residual_max"] >= result.metrics["residual_avg"]
-
-    def test_mse_non_negative(self):
-        model = _trained_model(no=4)
-        x, y = _test_tensors(no=4)
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        for i in range(1, 5):
-            assert result.metrics[f"mse_y{i}"] >= 0.0
-
-    def test_nrmse_non_negative(self):
-        model = _trained_model(no=4)
-        x, y = _test_tensors(no=4)
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        for i in range(1, 5):
-            assert result.metrics[f"nrmse_y{i}"] >= 0.0
-
-    def test_proj_iter_non_negative(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert result.metrics["projection iterations"] >= 0
-
-    def test_inference_time_positive(self):
-        model = _trained_model()
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert result.metrics["inference time"] > 0.0
-
-    def test_infeasible_pct_in_0_100(self):
-        def g(x, y):
-            return y[:, 0]
-
-        model = _trained_model(no=4)
-        x, y = _test_tensors(no=4)
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig(inequalities=[g])).evaluate(x, y, sp)
-        pct = result.metrics["ineq_g1_infeasible_pct"]
-        assert 0.0 <= pct <= 100.0
-
-    def test_violation_non_negative(self):
-        def g(x, y):
-            return y[:, 0]
-
-        model = _trained_model(no=4)
-        x, y = _test_tensors(no=4)
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig(inequalities=[g])).evaluate(x, y, sp)
-        assert result.metrics["ineq_g1_mean_violation"] >= 0.0
-        assert result.metrics["ineq_g1_max_violation"] >= 0.0
-
-
-# ── Batched vs full-batch consistency ─────────────────────────────────────────
-
-
-class TestBatchedInference:
-    def test_batched_predictions_match_full_batch(self):
-        """Splitting into batches must not change predictions."""
-        model = _trained_model()
-        x, y = _test_tensors(n=40)
-        sp = _make_scaling_params(2, 4)
-
-        result_full = Evaluator(model, EvaluationConfig(batch_size=40)).evaluate(x, y, sp)
-        result_batched = Evaluator(model, EvaluationConfig(batch_size=10)).evaluate(x, y, sp)
-
-        np.testing.assert_allclose(
-            result_full.predictions,
-            result_batched.predictions,
-            rtol=1e-5,
-            err_msg="Batched inference predictions differ from full-batch",
-        )
-
-    def test_none_batch_size_uses_full_batch(self):
-        """batch_size=None should be equivalent to batch_size=N."""
-        model = _trained_model()
-        x, y = _test_tensors(n=40)
-        sp = _make_scaling_params(2, 4)
-
-        result_none = Evaluator(model, EvaluationConfig(batch_size=None)).evaluate(x, y, sp)
-        result_n = Evaluator(model, EvaluationConfig(batch_size=40)).evaluate(x, y, sp)
-
-        np.testing.assert_allclose(
-            result_none.predictions,
-            result_n.predictions,
-            rtol=1e-5,
-        )
-
-
-# ── Unconstrained model ───────────────────────────────────────────────────────
-
-
-class TestUnconstrainedEvaluator:
-    def test_predictions_equal_before_proj_when_unconstrained(self):
-        """For MLP mode ytilde == yhat so both arrays must be identical."""
-        model = _trained_model(constrained=False)
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        np.testing.assert_array_equal(result.predictions, result.predictions_before_proj)
-
-    def test_proj_iter_zero_when_unconstrained(self):
-        model = _trained_model(constrained=False)
-        x, y = _test_tensors()
-        sp = _make_scaling_params(2, 4)
-        result = Evaluator(model, EvaluationConfig()).evaluate(x, y, sp)
-        assert result.metrics["projection iterations"] == 0
+    np.testing.assert_allclose(result.predictions, np.tile([10.0, -3.0], (4, 1)))
+
+
+def test_evaluator_accepts_soft_constrained_loss_for_plain_backbone():
+    scaler, constraints, model, _ = _system()
+    loss = SoftConstrainedLoss(scaler, constraints, weight_loss_soft=1.0)
+    x, y = torch.randn(6, 2), torch.randn(6, 3)
+    result = Evaluator(model, loss, scaler, constraints, EvaluationConfig()).evaluate(x, y)
+    assert result.predictions.shape == (6, 3)
+
+
+def test_evaluator_rejects_unsupported_loss_for_plain_backbone():
+    scaler, constraints, model, _ = _system()
+    with pytest.raises(NotImplementedError):
+        Evaluator(model, nn.MSELoss(), scaler, constraints, EvaluationConfig())
+
+
+def test_per_output_metrics_promote_large_float32_residuals_before_r2():
+    scaler, constraints, model, loss = _system()
+    evaluator = Evaluator(model, loss, scaler, constraints, EvaluationConfig())
+    y_true = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32)
+    y_pred = np.array([[1e20, 0.0, 0.0], [-1e20, 0.0, 0.0]], dtype=np.float32)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        metrics = evaluator._per_output_metrics(y_true, y_pred)
+    assert np.isfinite(metrics["r2_y1"])
+    assert np.isfinite(metrics["mse_y1"])
+    assert metrics["mse_y1"] > 1e38
+
+
+def test_evaluator_supports_generic_constrained_model():
+    from enforce.models import ConstrainedMLP
+
+    class Clamp(nn.Module):
+        def forward(self, yhat):
+            return yhat.clamp(-0.1, 0.1)
+
+    scaler, constraints, _, _ = _system()
+    model = ConstrainedMLP(MLPConfig(2, 10, 3, 1, 4), Clamp())
+    loss = ENFORCELoss(scaler, constraints)
+    x, y = torch.randn(7, 2), torch.randn(7, 3)
+    result = Evaluator(model, loss, scaler, constraints, EvaluationConfig(batch_size=3)).evaluate(x, y)
+    assert result.metrics["projection iterations"] == 0
+    assert np.abs(result.predictions).max() <= 0.1 + 1e-6

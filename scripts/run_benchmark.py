@@ -1,7 +1,7 @@
 """Benchmark runner for ENFORCE and MLP baselines.
 
-Configure via configs/config_benchmarking.py, then run:
-    python run_benchmark.py
+Configure via benchmark_problems/config_benchmarking.py, then run from the repo root:
+    python -m scripts.run_benchmark
 """
 
 import json
@@ -28,7 +28,6 @@ from benchmark_problems.config_benchmarking import (
     FIX_SEED,
     HIDDEN_LAYERS,
     HIDDEN_NEURONS,
-    IFT_BACKWARD,
     INFERENCE_TOLERANCE,
     INPUT_NEURONS,
     LEARNING_RATE,
@@ -52,20 +51,25 @@ from benchmark_problems.config_benchmarking import (
     WEIGHT_LOSS_SOFT,
     N,
 )
-from benchmark_problems.engineering_problems.extraction_column import constraints_column
+from benchmark_problems.data_utils import Dataloader, generate_data
+from benchmark_problems.engineering_problems.extraction_column import make_extraction_column_constraints
 from benchmark_problems.engineering_problems.pooling import make_pooling_constraints
 from benchmark_problems.function_fitting.equality.constraints import get_constraints
 from benchmark_problems.function_fitting.equality.functions import get_functions
 from benchmark_problems.function_fitting.inequality.sin_ineq import make_sin_ineq_constraints
 from benchmark_problems.parametric_optimization.opt_problem import NonconvexProgram, NonlinearProgram
 from benchmark_problems.parametric_optimization.ssl_loss import SSLConfig, SSLLoss
-from enforce.data.data_utils import generate_data, scale_data
-from enforce.data.dataloaders import Dataloader
-from enforce.core.config import ENFORCEConfig
-from enforce.core.model import ENFORCE
+from benchmark_problems.visualization.plot_benchmarking import plot_all_results, plot_sin_ineq_results
+from enforce.core.constraints import Constraints
+from enforce.core.scaler import Scaler
+from enforce.data import scale_data
 from enforce.engines.evaluate import EvaluationConfig, Evaluator
 from enforce.engines.train import Trainer, TrainingConfig
-from benchmark_problems.visualization.plot_benchmarking import plot_all_results, plot_sin_ineq_results
+from enforce.layers.enforce import ENFORCE, ENFORCEConfig
+from enforce.losses.enforce_loss import ENFORCELoss, ENFORCELossConfig, ENFORCESSLLoss
+from enforce.losses.mse_loss import MSELoss
+from enforce.losses.soft_constrained_loss import SoftConstrainedLoss, SoftConstrainedSSLLoss
+from enforce.models import MLP, ENFORCEConstrainedMLP, MLPConfig
 
 # ── Module-level seeding (must execute at import time for reproducibility) ─────
 
@@ -79,6 +83,28 @@ seeds: list[int] = [random.randint(0, 100000) for _ in range(N)] if not FIX_SEED
 PROFILER = False  # set True to print per-batch profiling tables
 
 
+class BenchmarkSSLLoss(ENFORCESSLLoss):
+    """Adapt a benchmark objective to ENFORCE's self-supervised loss contract."""
+
+    def __init__(self, scaler, constraints, config, objective):
+        super().__init__(scaler=scaler, constraints=constraints, config=config)
+        self.objective = objective
+
+    def ssl_loss(self, x, yhat):
+        return self.objective(x, yhat)
+
+
+class BenchmarkObjective(SoftConstrainedSSLLoss):
+    """Self-supervised objective for the unconstrained MLP baseline (soft penalty if weight > 0)."""
+
+    def __init__(self, scaler, constraints, weight_loss_soft, objective):
+        super().__init__(scaler=scaler, constraints=constraints, weight_loss_soft=weight_loss_soft)
+        self.objective = objective
+
+    def ssl_loss(self, x, yhat):
+        return self.objective(x, yhat)
+
+
 # ── Data containers ───────────────────────────────────────────────────────────
 
 
@@ -87,14 +113,12 @@ class ProblemData:
     """All data and problem-specific objects for one benchmark."""
 
     train_inputs: np.ndarray
-    train_outputs: np.ndarray  # FB-extended when fb is set
+    train_outputs: np.ndarray  # Extended with zero inequality multipliers when needed
     test_inputs: np.ndarray
-    test_outputs: np.ndarray  # FB-extended when fb is set
-    train_outputs_orig: np.ndarray  # before FB extension (== train_outputs if no fb)
-    test_outputs_orig: np.ndarray  # before FB extension (== test_outputs if no fb)
-    c: object  # constraint callable c(x, y) → residuals
-    fb: object | None  # FischerBurmeisterReformulation, or None
-    jac: object | None  # analytical Jacobian
+    test_outputs: np.ndarray  # Extended with zero inequality multipliers when needed
+    train_outputs_orig: np.ndarray  # Physical outputs before inequality extension
+    test_outputs_orig: np.ndarray  # Physical outputs before inequality extension
+    constraints: Constraints
     ssl_loss: object | None  # SSLLoss module
     eps_chol: float = 1e-8
 
@@ -111,6 +135,16 @@ class PreparedTensors(NamedTuple):
     scaling_params: dict  # raw numpy scaling stats for Evaluator
 
 
+@dataclass
+class BenchmarkSetup:
+    """Objects passed explicitly to Trainer and Evaluator for one run."""
+
+    scaler: Scaler
+    constraints: Constraints
+    model: torch.nn.Module
+    loss: torch.nn.Module
+
+
 # ── Per-problem data loaders ──────────────────────────────────────────────────
 
 
@@ -125,9 +159,7 @@ def _load_function_fitting_data() -> ProblemData:
         test_outputs=test_out,
         train_outputs_orig=train_out,
         test_outputs_orig=test_out,
-        c=get_constraints(),
-        fb=None,
-        jac=None,
+        constraints=Constraints(c=[get_constraints()]),
         ssl_loss=None,
     )
 
@@ -151,9 +183,7 @@ def _load_extraction_column_data() -> ProblemData:
         test_outputs=test_out,
         train_outputs_orig=train_out,
         test_outputs_orig=test_out,
-        c=constraints_column,
-        fb=None,
-        jac=None,
+        constraints=make_extraction_column_constraints(),
         ssl_loss=None,
     )
 
@@ -171,17 +201,15 @@ def _load_pooling_data() -> ProblemData:
     train_out = pd.read_csv(OUTPUT_DATA_PATH_TRAIN, header=0).to_numpy()
     test_in = pd.read_csv(INPUT_DATA_PATH_TEST, header=0).to_numpy()
     test_out = pd.read_csv(OUTPUT_DATA_PATH_TEST, header=0).to_numpy()
-    fb, c = make_pooling_constraints()
+    constraints = make_pooling_constraints()
     return ProblemData(
         train_inputs=train_in,
-        train_outputs=fb.extend_outputs(train_out),
+        train_outputs=constraints.extend_outputs(train_out),
         test_inputs=test_in,
-        test_outputs=fb.extend_outputs(test_out),
+        test_outputs=constraints.extend_outputs(test_out),
         train_outputs_orig=train_out,
         test_outputs_orig=test_out,
-        c=c,
-        fb=fb,
-        jac=None,
+        constraints=constraints,
         ssl_loss=None,
         eps_chol=POOLING_EPS_CHOL,
     )
@@ -209,17 +237,15 @@ def _load_sin_ineq_data() -> ProblemData:
     train_out = (f_train + noise).astype(np.float32)
     test_in = np.random.uniform(SIN_INEQ_LEFT, SIN_INEQ_RIGHT, (SIN_INEQ_N_TEST, 1)).astype(np.float32)
     test_out = ((1 + test_in**2 / (3 * np.pi**2)) * np.sin(test_in)).astype(np.float32)
-    fb, c = make_sin_ineq_constraints()
+    constraints = make_sin_ineq_constraints()
     return ProblemData(
         train_inputs=train_in,
-        train_outputs=fb.extend_outputs(train_out),
+        train_outputs=constraints.extend_outputs(train_out),
         test_inputs=test_in,
-        test_outputs=fb.extend_outputs(test_out),
+        test_outputs=constraints.extend_outputs(test_out),
         train_outputs_orig=train_out,
         test_outputs_orig=test_out,
-        c=c,
-        fb=fb,
-        jac=None,
+        constraints=constraints,
         ssl_loss=None,
     )
 
@@ -237,10 +263,9 @@ def _load_nonconvex_data(device: str) -> ProblemData:
         if PROBLEM == "nonconvex_linear"
         else NonlinearProgram(params_path=PARAMS_PATH)
     )
-    ssl_loss = SSLLoss(
-        config=SSLConfig(soft_constrained=SOFT_CONSTRAINED, weight_loss_soft=WEIGHT_LOSS_SOFT),
-        opt_prob=opt_prob,
-    ).to(device=device)
+    # Pure objective: the soft constraint penalty is added once by the loss
+    # (ENFORCESSLLoss for ENFORCE, BenchmarkObjective for the MLP).
+    ssl_loss = SSLLoss(config=SSLConfig(soft_constrained=False), opt_prob=opt_prob).to(device=device)
     train_out = raw["train_outputs"]
     test_out = raw["test_outputs"]
     return ProblemData(
@@ -250,9 +275,7 @@ def _load_nonconvex_data(device: str) -> ProblemData:
         test_outputs=test_out,
         train_outputs_orig=train_out,
         test_outputs_orig=test_out,
-        c=opt_prob.eq_constraints,
-        fb=None,
-        jac=opt_prob.jacobian,
+        constraints=opt_prob.constraints(),
         ssl_loss=ssl_loss,
     )
 
@@ -302,24 +325,18 @@ def _prepare_tensors(data: ProblemData, device: str) -> PreparedTensors:
 # ── Model construction ────────────────────────────────────────────────────────
 
 
-def _build_enforce_config(seed: int) -> ENFORCEConfig:
+def _build_enforce_config(seed: int, eps_chol: float = 1e-8) -> ENFORCEConfig:
     return ENFORCEConfig(
-        input_neurons=INPUT_NEURONS,
-        hidden_neurons=HIDDEN_NEURONS,
-        output_neurons=OUTPUT_NEURONS,
-        hidden_layers=HIDDEN_LAYERS,
         training_tolerance=TRAINING_TOLERANCE,
         inference_tolerance=INFERENCE_TOLERANCE,
         max_it=MAX_IT,
         epoch_start_hard_constrained=EPOCH_START_HARD_CONSTRAINED,
         ada_np_auto_activation=ADA_NP_AUTO_ACTIVATION,
-        ift_backward=IFT_BACKWARD,
+        weighting_option=PROJ_WEIGHTING_OPTION,
+        eps_chol=eps_chol,
         regularise_gram=REGULARISE_GRAM,
-        supervised=SUPERVISED,
-        soft_constrained=SOFT_CONSTRAINED,
-        weight_loss_displacement=WEIGHT_LOSS_DISPLACEMENT,
-        weight_loss_soft=WEIGHT_LOSS_SOFT,
-        verbose=VERBOSE,
+        # ENFORCE only supports verbose output for self-supervised losses
+        verbose=VERBOSE and not SUPERVISED,
         random_seed=seed,
     )
 
@@ -330,33 +347,51 @@ def _build_model(
     constrained: bool,
     seed: int,
     device: str,
-) -> ENFORCE:
-    return ENFORCE(
-        scaling_input=tensors.scaling_input,
-        scaling_output=tensors.scaling_output,
-        c=data.c,
-        config=_build_enforce_config(seed),
-        fb=data.fb,
-        constrained=constrained,
-        weighting_option=PROJ_WEIGHTING_OPTION,
-        ssl_loss=data.ssl_loss if not SUPERVISED else None,
-        jac=data.jac,
-        eps_chol=data.eps_chol,
-    ).to(device=device)
+) -> BenchmarkSetup:
+    scaler = Scaler(tensors.scaling_input, tensors.scaling_output)
+    constraints = data.constraints
+    loss_cfg = ENFORCELossConfig(
+        soft_constrained=SOFT_CONSTRAINED,
+        weight_loss_displacement=WEIGHT_LOSS_DISPLACEMENT,
+        weight_loss_soft=WEIGHT_LOSS_SOFT,
+    )
+    soft_weight = WEIGHT_LOSS_SOFT if SOFT_CONSTRAINED else 0.0
+    if constrained:
+        if SUPERVISED:
+            loss = ENFORCELoss(scaler, constraints, loss_cfg)
+        else:
+            loss = BenchmarkSSLLoss(scaler, constraints, loss_cfg, data.ssl_loss)
+    elif SUPERVISED:
+        loss = SoftConstrainedLoss(scaler, constraints, soft_weight) if SOFT_CONSTRAINED else MSELoss()
+    else:
+        loss = BenchmarkObjective(scaler, constraints, soft_weight, data.ssl_loss)
+
+    mlp_cfg = MLPConfig(
+        input_neurons=INPUT_NEURONS,
+        hidden_neurons=HIDDEN_NEURONS,
+        output_neurons=OUTPUT_NEURONS,
+        hidden_layers=HIDDEN_LAYERS,
+        random_seed=seed,
+    )
+    if constrained:
+        constraint_layer = ENFORCE(
+            scaler=scaler,
+            constraints=constraints,
+            loss=loss,
+            config=_build_enforce_config(seed, data.eps_chol),
+        )
+        model = ENFORCEConstrainedMLP(mlp_cfg, constraint_layer)
+    else:
+        model = MLP(mlp_cfg)
+    return BenchmarkSetup(scaler=scaler, constraints=constraints, model=model.to(device=device), loss=loss)
 
 
-def _build_training_config(data: ProblemData, constrained: bool, seed: int) -> TrainingConfig:
-    # Unconstrained mode for supervised FB problems uses a soft inequality penalty
-    # instead of hard projection.
-    use_soft_penalty = data.fb is not None and SOFT_CONSTRAINED and not constrained
+def _build_training_config(seed: int) -> TrainingConfig:
     return TrainingConfig(
         batch_size=BATCH_SIZE,
         epochs=EPOCHS,
         learning_rate=LEARNING_RATE,
         random_seed=seed,
-        soft_inequalities=data.fb.inequalities if use_soft_penalty else None,
-        soft_weight=WEIGHT_LOSS_SOFT if use_soft_penalty else 0.0,
-        n_original_outputs=data.fb.no if data.fb is not None else None,
     )
 
 
@@ -364,45 +399,40 @@ def _build_training_config(data: ProblemData, constrained: bool, seed: int) -> T
 
 
 def _train_model(
-    model: ENFORCE,
+    setup: BenchmarkSetup,
     training_cfg: TrainingConfig,
     train_in: torch.Tensor,
     train_out: torch.Tensor,
-) -> tuple[ENFORCE, float]:
-    """Train *model* and return (trained model, wall-clock seconds)."""
+) -> float:
+    """Train ``setup.model`` in place and return the wall-clock seconds."""
+    trainer = Trainer(setup.model, setup.loss, setup.scaler, setup.constraints, training_cfg)
     t0 = time.time()
     if PROFILER:
         with profiler.profile(with_stack=True, profile_memory=True) as prof:
-            model = Trainer(model, training_cfg).fit(train_in, train_out)
+            trainer.fit(train_in, train_out)
         print(prof.key_averages(group_by_input_shape=True).table(sort_by="self_cpu_time_total", row_limit=20))
     else:
-        model = Trainer(model, training_cfg).fit(train_in, train_out)
-    return model, time.time() - t0
+        trainer.fit(train_in, train_out)
+    return time.time() - t0
 
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 
 
 def _evaluate_model(
-    model: ENFORCE,
-    data: ProblemData,
+    setup: BenchmarkSetup,
     tensors: PreparedTensors,
 ) -> tuple[dict, np.ndarray, np.ndarray]:
-    """Evaluate *model*; strip FB columns from predictions if needed.
+    """Evaluate ``setup.model``; strip FB columns from predictions if needed.
 
     Returns (metrics, predictions, predictions_before_projection).
     """
-    eval_cfg = EvaluationConfig(
-        batch_size=BATCH_SIZE,
-        n_original_outputs=data.fb.no if data.fb is not None else None,
-        inequalities=data.fb.inequalities if data.fb is not None else None,
+    eval_cfg = EvaluationConfig(batch_size=BATCH_SIZE)
+    result = Evaluator(setup.model, setup.loss, setup.scaler, setup.constraints, eval_cfg).evaluate(
+        tensors.test_in, tensors.test_out
     )
-    result = Evaluator(model, eval_cfg).evaluate(tensors.test_in, tensors.test_out, tensors.scaling_params)
     predictions = result.predictions
     predictions_before = result.predictions_before_proj
-    if data.fb is not None:
-        predictions = data.fb.extract_outputs(predictions)
-        predictions_before = data.fb.extract_outputs(predictions_before)
     return result.metrics, predictions, predictions_before
 
 
@@ -413,16 +443,12 @@ def _setup_output_dir(timestamp: str) -> Path | None:
     """Create the run output directory tree and write a readme. Returns None if SAVE=False."""
     if not SAVE:
         return None
-    training_dir = Path(TRAINING_DIR) / PROBLEM
-    if not SUPERVISED:
-        suffix = {"nonconvex_linear": "nonconvex", "nonconvex_nonlinear": "nonlinear"}.get(PROBLEM, "")
-        if suffix:
-            training_dir = training_dir / suffix
-    output_dir = training_dir / f"run_{timestamp}"
+    output_dir = Path(TRAINING_DIR) / PROBLEM / f"run_{timestamp}"
     for sub in ("losses", "test_dataset", "plots", "test_predictions"):
         (output_dir / sub).mkdir(parents=True, exist_ok=True)
 
-    config_text = Path("src/benchmark_problems/config_benchmarking.py").read_text(encoding="utf-8")
+    config_path = Path("benchmark_problems/config_benchmarking.py")
+    config_text = config_path.read_text(encoding="utf-8")
     readme = (
         "Training Output Data\n\n"
         "Files:\n"
@@ -431,12 +457,19 @@ def _setup_output_dir(timestamp: str) -> Path | None:
         "  <mode>_metrics_runs.csv          Per-run evaluation metrics.\n"
         "  <mode>_mean_metrics.csv          Mean/std metrics across runs.\n"
         "  <mode>_test_data.csv             Test inputs and true outputs.\n"
-        "  <mode>_test_predictions_run_X.csv Predictions (and pre-projection) for run X.\n\n"
+        "  <mode>_test_predictions_run_X.csv Predictions (and pre-projection) for run X.\n"
+        "  model_<timestamp>_<mode>_runX.pth Model weights (state_dict) for run X.\n"
+        "  scaling.json                     Input/output scaling statistics.\n\n"
         "The same seeds were used for corresponding runs in both modes for fair comparison.\n\n" + config_text
     )
     (output_dir / "readme.txt").write_text(readme, encoding="utf-8")
     print(f"Output directory: {output_dir}")
     return output_dir
+
+
+def _save_model(setup: BenchmarkSetup, path: Path) -> None:
+    """Save the model weights only (``state_dict``); scaling stats are saved in scaling.json."""
+    torch.save(setup.model.state_dict(), path)
 
 
 def _save_scaling_params(output_dir: Path, scaling_params: dict) -> None:
@@ -655,17 +688,17 @@ def main() -> None:
         for run_idx, seed in enumerate(seeds):
             print(f"Run {run_idx + 1}/{N}, Seed={seed}")
 
-            model = _build_model(data, tensors, constrained, seed, device)
-            training_cfg = _build_training_config(data, constrained, seed)
-            model, training_time = _train_model(model, training_cfg, tensors.train_in, tensors.train_out)
+            setup = _build_model(data, tensors, constrained, seed, device)
+            training_cfg = _build_training_config(seed)
+            training_time = _train_model(setup, training_cfg, tensors.train_in, tensors.train_out)
 
             if output_dir is not None:
-                torch.save(model, output_dir / f"model_{timestamp}_{mode}_run{run_idx}.pth")
+                _save_model(setup, output_dir / f"model_{timestamp}_{mode}_run{run_idx}.pth")
 
-            metrics, preds, preds_before = _evaluate_model(model, data, tensors)
+            metrics, preds, preds_before = _evaluate_model(setup, tensors)
             metrics["training_time"] = training_time
 
-            run_losses.append(model.losses)
+            run_losses.append(setup.loss.losses)
             run_metrics.append(metrics)
             run_preds.append(preds)
             if constrained:

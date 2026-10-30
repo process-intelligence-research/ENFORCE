@@ -1,4 +1,4 @@
-"""Tests for ENFORCE model instantiation and forward behaviour.
+"""Tests for the current backbone + constraint-module architecture.
 
 Design notes
 ------------
@@ -10,268 +10,347 @@ Design notes
   constrained=False so no Jacobian is needed.
 """
 
+import warnings
+
+import pytest
 import torch
 import torch.nn as nn
 
-from enforce.core.config import ENFORCEConfig
-from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
-from enforce.core.model import ENFORCE
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
+from enforce import ENFORCE, Constraint, Constraints, ENFORCEConfig, ENFORCELoss, Scaler
+from enforce.models import MLP, ConstrainedModel, ENFORCEConstrainedMLP, MLPConfig
 
 
-def _scaling(n: int, device="cpu"):
-    """Return (mean, std) tensors of size n: mean=0, std=1."""
-    return (
-        torch.zeros(n, dtype=torch.float32, device=device),
-        torch.ones(n, dtype=torch.float32, device=device),
+def _system(ni=2, no=4, nc=1, *, seed=0, weighting="ID", config=None):
+    scaler = Scaler((torch.zeros(ni), torch.ones(ni)), (torch.zeros(no), torch.ones(no)))
+    constraints = Constraints(c=[lambda x, y, i=i: y[:, i] for i in range(nc)])
+    loss = ENFORCELoss(scaler, constraints)
+    layer = ENFORCE(scaler, constraints, loss, config or ENFORCEConfig(random_seed=seed, weighting_option=weighting))
+    mlp_config = MLPConfig(ni, 16, no, 1, seed)
+    model = ENFORCEConstrainedMLP(mlp_config, layer)
+    return scaler, constraints, loss, layer, model
+
+
+def test_enforce_stores_config_and_shared_objects():
+    cfg = ENFORCEConfig()
+    _, constraints, loss, layer, model = _system(config=cfg)
+    assert layer.cfg is cfg
+    assert layer.constraints is constraints
+    assert layer.loss is loss
+    assert model.cfg is cfg
+    assert layer.ift_backward is False
+
+
+def test_default_enforce_config_is_created():
+    scaler, constraints, _, _, _ = _system()
+    layer = ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints))
+    assert layer.cfg == ENFORCEConfig()
+
+
+def test_mlp_architecture_and_forward_dimensions():
+    cfg = MLPConfig(input_neurons=3, hidden_neurons=32, output_neurons=5, hidden_layers=3)
+    mlp = MLP(cfg)
+    assert mlp.input_layer.in_features == 3
+    assert mlp.input_layer.out_features == 32
+    assert len(mlp.hidden_layers) == 3
+    assert all(layer.in_features == layer.out_features == 32 for layer in mlp.hidden_layers)
+    assert mlp.output_layer.out_features == 5
+    assert isinstance(mlp.hidden_activation, nn.ReLU)
+    assert mlp(torch.randn(8, 3)).shape == (8, 5)
+
+
+def test_model_returns_constrained_and_raw_predictions():
+    _, _, _, layer, model = _system(ni=2, no=4, nc=1)
+    x = torch.randn(7, 2)
+    ytilde, yhat = model(x)
+    assert ytilde.shape == yhat.shape == (7, 4)
+    assert model.backbone is not None
+    assert model.constraint_module is layer
+
+
+def test_composition_supports_any_constraint_module():
+    backbone = nn.Linear(2, 3)
+    model = ConstrainedModel(backbone, nn.Identity())
+    constrained, raw = model(torch.randn(4, 2))
+    assert torch.equal(constrained, raw)
+
+
+def test_trainable_fixed_weighting_is_parameterized_by_output_width():
+    _, _, _, layer, _ = _system(no=4, weighting="TF")
+    assert isinstance(layer.proj_weight_log_diag, nn.Parameter)
+    assert layer.proj_weight_log_diag.shape == (4,)
+
+
+def test_other_weighting_modes_do_not_add_trainable_parameter():
+    for weighting in ("I", "BA", "ID", "R"):
+        *_, layer, _ = _system(weighting=weighting)
+        assert not hasattr(layer, "proj_weight_log_diag")
+
+
+def test_constraints_extend_extract_and_compute_fb_residuals():
+    def g(x, y):
+        return -y[:, 0]
+
+    constraints = Constraints(g=[g])
+    x, y = torch.zeros(3, 1), torch.tensor([[1.], [0.], [-1.]])
+    extended = constraints.extend_outputs(y)
+    assert extended.shape == (3, 2)
+    assert torch.equal(extended[:, 1], torch.zeros(3))
+    assert torch.equal(constraints.extract_outputs(extended), y)
+    residuals = constraints(x, extended)
+    assert residuals.shape == (3, 1)
+    assert torch.isfinite(residuals).all()
+
+
+def test_enforce_constrained_model_predict_reports_projection_count():
+    scaler, constraints, loss, _, _ = _system(ni=2, no=3, nc=1)
+    layer = ENFORCE(
+        scaler,
+        constraints,
+        loss,
+        ENFORCEConfig(epoch_start_hard_constrained=5, random_seed=1),
     )
+    model = ENFORCEConstrainedMLP(MLPConfig(2, 8, 3, 1, 1), layer)
+    x = torch.randn(6, 2)
+    ytilde, yhat, iterations = model.predict(x)
+    assert ytilde.shape == yhat.shape == (6, 3)
+    assert iterations == 0
 
 
-def _linear_constraint(nc: int):
-    """Return a constraint c(x, y) -> [BS, nc] that is always zero at y=0.
+def test_inference_projection_enforces_linear_equality_and_preserves_null_space():
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(2), torch.ones(2)))
+    constraints = Constraints(c=[lambda x, y: y[:, 0] - y[:, 1]])
+    loss = ENFORCELoss(scaler, constraints)
+    layer = ENFORCE(
+        scaler,
+        constraints,
+        loss,
+        ENFORCEConfig(
+            weighting_option="I",
+            inference_tolerance=1e-5,
+            max_it=10,
+            ada_np_auto_activation=False,
+        ),
+    )
+    layer.eval()
+    x = torch.zeros(2, 1)
+    yhat = torch.tensor([[2.0, 0.0], [3.0, 1.0]])
 
-    Uses the first nc outputs so we can easily control how many constraints
-    we get for a model with no outputs.
-    """
+    projected, original, iterations = layer.project(x, yhat)
 
-    def c(x, y):
-        return y[:, :nc]  # [BS, nc]
-
-    return c
-
-
-def _make_model(cfg: ENFORCEConfig, nc: int = 1, **kwargs) -> ENFORCE:
-    """Instantiate an ENFORCE model with trivial scaling and a linear constraint."""
-    si = _scaling(cfg.input_neurons)
-    so = _scaling(cfg.output_neurons)
-    c = _linear_constraint(nc)
-    return ENFORCE(scaling_input=si, scaling_output=so, c=c, config=cfg, **kwargs)
-
-
-# ── Config forwarding ─────────────────────────────────────────────────────────
-
-
-class TestConfigStoredOnModel:
-    def test_cfg_attribute_is_set(self):
-        cfg = ENFORCEConfig(input_neurons=2, hidden_neurons=32, output_neurons=4)
-        model = _make_model(cfg, nc=2)
-        assert model.cfg is cfg
-
-    def test_default_config_used_when_none_passed(self):
-        si = _scaling(1)
-        so = _scaling(1)
-        c = _linear_constraint(1)
-        # No config= kwarg → should fall back to ENFORCEConfig()
-        model = ENFORCE(scaling_input=si, scaling_output=so, c=c)
-        assert isinstance(model.cfg, ENFORCEConfig)
-        assert model.cfg == ENFORCEConfig()
-
-    def test_ift_backward_from_config(self):
-        cfg = ENFORCEConfig(ift_backward=True)
-        model = _make_model(cfg)
-        assert model.ift_backward is True
-
-    def test_random_seed_applied(self):
-        cfg_a = ENFORCEConfig(input_neurons=4, hidden_neurons=16, output_neurons=2, random_seed=0)
-        cfg_b = ENFORCEConfig(input_neurons=4, hidden_neurons=16, output_neurons=2, random_seed=0)
-        m_a = _make_model(cfg_a, nc=1)
-        m_b = _make_model(cfg_b, nc=1)
-        for (_, pa), (_, pb) in zip(m_a.named_parameters(), m_b.named_parameters()):
-            assert torch.allclose(pa, pb), "Same seed must produce identical weights"
+    torch.testing.assert_close(projected, torch.tensor([[1.0, 1.0], [2.0, 2.0]]), atol=1e-5, rtol=0)
+    torch.testing.assert_close(original, yhat)
+    torch.testing.assert_close(constraints(x, projected), torch.zeros(2, 1), atol=1e-5, rtol=0)
+    assert iterations > 0
 
 
-# ── Architecture ──────────────────────────────────────────────────────────────
+def test_inequality_projection_extends_outputs_and_enforces_complementarity():
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(2), torch.ones(2)))
+    constraints = Constraints(g=[lambda x, y: y[:, 0] - 1.0])
+    loss = ENFORCELoss(scaler, constraints)
+    layer = ENFORCE(
+        scaler,
+        constraints,
+        loss,
+        ENFORCEConfig(
+            weighting_option="I",
+            inference_tolerance=1e-3,
+            max_it=20,
+            ada_np_auto_activation=False,
+        ),
+    )
+    layer.eval()
+    x, yhat = torch.zeros(1, 1), torch.tensor([[2.0]])
+
+    projected, original, iterations = layer.project(x, yhat)
+
+    assert projected.shape == (1, 2)
+    torch.testing.assert_close(original[:, :1], yhat)
+    assert projected[0, 1] >= 0
+    assert constraints.g_values(x, projected[:, :1]).item() <= 1e-3
+    assert constraints(x, projected).abs().max().item() <= 1e-3
+    assert iterations > 0
 
 
-class TestArchitecture:
-    def test_input_layer_shape(self):
-        cfg = ENFORCEConfig(input_neurons=3, hidden_neurons=32, output_neurons=5)
-        model = _make_model(cfg, nc=2)
-        assert model.input_layer.in_features == 3
-        assert model.input_layer.out_features == 32
+def test_training_projection_keeps_gradients_finite_and_tangent_to_constraint():
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(2), torch.ones(2)))
+    constraints = Constraints(c=[lambda x, y: y[:, 0] - y[:, 1]])
+    layer = ENFORCE(
+        scaler,
+        constraints,
+        ENFORCELoss(scaler, constraints),
+        ENFORCEConfig(weighting_option="I", ada_np_auto_activation=False, training_tolerance=1e-5),
+    )
+    x = torch.zeros(2, 1)
+    yhat = torch.tensor([[2.0, 0.0], [3.0, 1.0]], requires_grad=True)
 
-    def test_hidden_layer_shape(self):
-        cfg = ENFORCEConfig(hidden_neurons=128, output_neurons=3)
-        model = _make_model(cfg, nc=1)
-        assert isinstance(model.hidden_layers, nn.ModuleList)
-        assert len(model.hidden_layers) == cfg.hidden_layers
-        for layer in model.hidden_layers:
-            assert layer.in_features == 128
-            assert layer.out_features == 128
+    projected = layer(x, yhat, y=torch.zeros_like(yhat))
+    projected.square().sum().backward()
 
-    def test_output_layer_shape(self):
-        cfg = ENFORCEConfig(hidden_neurons=64, output_neurons=9)
-        model = _make_model(cfg, nc=3)
-        assert model.output_layer.out_features == 9
-
-    def test_ni_no_attributes(self):
-        cfg = ENFORCEConfig(input_neurons=5, output_neurons=7)
-        model = _make_model(cfg, nc=3)
-        assert model.ni == 5
-        assert model.no == 7
-
-    def test_relu_activation(self):
-        model = _make_model(ENFORCEConfig())
-        assert isinstance(model.hidden_activation, nn.ReLU)
-
-    def test_loss_function_is_mse(self):
-        model = _make_model(ENFORCEConfig())
-        assert isinstance(model.loss_function, nn.MSELoss)
-
-    def test_weighting_option_7_creates_parameter(self):
-        cfg = ENFORCEConfig(output_neurons=4)
-        model = _make_model(cfg, nc=2, weighting_option=7)
-        assert hasattr(model, "proj_weight_log_diag")
-        assert isinstance(model.proj_weight_log_diag, nn.Parameter)
-        assert model.proj_weight_log_diag.shape == (4,)
-
-    def test_weighting_option_non7_no_extra_parameter(self):
-        for opt in (1, 3, 5, 6):
-            cfg = ENFORCEConfig(output_neurons=4)
-            model = _make_model(cfg, nc=2, weighting_option=opt)
-            assert not hasattr(model, "proj_weight_log_diag")
+    torch.testing.assert_close(constraints(x, projected), torch.zeros(2, 1), atol=1e-5, rtol=0)
+    assert yhat.grad is not None and torch.isfinite(yhat.grad).all()
+    torch.testing.assert_close(yhat.grad[:, 0], yhat.grad[:, 1], atol=1e-5, rtol=0)
 
 
-# ── Forward pass ─────────────────────────────────────────────────────────────
+def test_analytic_constraint_jacobian_matches_autograd_jacobian():
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(3), torch.ones(3)))
+    constraints = Constraints(c=[lambda x, y: y[:, 0] + 2.0 * y[:, 1]])
+    loss = ENFORCELoss(scaler, constraints)
+    x = torch.zeros(2, 1)
+    y = torch.randn(2, 3, requires_grad=True)
+    expected = torch.tensor([1.0, 2.0, 0.0]).reshape(1, 1, 3).expand(2, -1, -1)
+
+    autodiff_layer = ENFORCE(scaler, constraints, loss)
+    autodiff = autodiff_layer.compute_dc_dy(x, y)
+    analytic_constraints = Constraints(
+        c=[Constraint(lambda x, y: y[:, 0] + 2.0 * y[:, 1], jac=lambda x, y: expected)]
+    )
+    analytic_layer = ENFORCE(scaler, analytic_constraints, ENFORCELoss(scaler, analytic_constraints))
+    analytic = analytic_layer.compute_dc_dy(x, y)
+
+    torch.testing.assert_close(autodiff, expected)
+    torch.testing.assert_close(analytic, expected)
 
 
-class TestForwardPass:
-    def test_output_shape_no_fb(self):
-        cfg = ENFORCEConfig(input_neurons=2, hidden_neurons=32, output_neurons=5)
-        model = _make_model(cfg, nc=2)
-        x = torch.randn(16, 2)
-        out = model.forward(x)
-        assert out.shape == (16, 5)
+def test_projection_tensor_solver_falls_back_for_rank_deficient_jacobian():
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(2), torch.ones(2)))
+    constraints = Constraints(c=[lambda x, y: y[:, 0]])
+    layer = ENFORCE(
+        scaler,
+        constraints,
+        ENFORCELoss(scaler, constraints),
+        ENFORCEConfig(weighting_option="I", regularise_gram=False, eps_chol=1e-5),
+    )
+    layer.nc = 1
+    B = torch.zeros(2, 1, 2)
+    v = torch.ones(2, 1)
 
-    def test_output_shape_varies_with_batch_size(self):
-        cfg = ENFORCEConfig(input_neurons=1, hidden_neurons=16, output_neurons=3)
-        model = _make_model(cfg, nc=1)
-        for bs in (1, 8, 64):
-            x = torch.randn(bs, 1)
-            assert model.forward(x).shape == (bs, 3)
+    B_star, v_star = layer.projection_tensors(B, v)
 
-    def test_hidden_layers_depth(self):
-        """A 3-hidden-layer config runs HIDDEN_LAYERS forward iterations."""
-        cfg = ENFORCEConfig(input_neurons=2, hidden_neurons=16, output_neurons=4, hidden_layers=3)
-        model = _make_model(cfg, nc=2)
-        x = torch.randn(8, 2)
-        out = model.forward(x)  # should not raise
-        assert out.shape == (8, 4)
+    assert torch.isfinite(B_star).all() and torch.isfinite(v_star).all()
+    torch.testing.assert_close(B_star, torch.eye(2).expand(2, -1, -1))
+    torch.testing.assert_close(v_star, torch.zeros(2, 2))
 
 
-# ── Fischer-Burmeister extension ──────────────────────────────────────────────
+@pytest.mark.parametrize("weighting", ["ID", "BA", "R", "TF"])
+def test_projection_weighting_modes_produce_positive_diagonal_matrices(weighting):
+    _, _, _, layer, _ = _system(no=3, weighting=weighting)
+    layer.dc_dy = torch.tensor([[[2.0, 0.0, 0.0]], [[0.0, 3.0, 0.0]]])
+
+    weights = layer.Wi_f()
+
+    assert weights.shape == (3, 3) if weighting in {"BA", "TF"} else weights.shape == (2, 3, 3)
+    diagonal = weights.diagonal(dim1=-2, dim2=-1)
+    assert (diagonal > 0).all()
+    off_diagonal = weights - torch.diag_embed(diagonal)
+    torch.testing.assert_close(off_diagonal, torch.zeros_like(off_diagonal))
 
 
-class TestFBExtension:
-    def _make_fb_model(self, n_orig, n_ineq, **model_kwargs):
-        def g_pos(x, y):  # g = -y[:,0] <= 0  <=>  y1 >= 0
-            return -y[:, 0]
-
-        def g_neg(x, y):  # g =  y[:,0] <= 0  <=>  y1 <= 0  (conflicts, but fine for shape tests)
-            return y[:, 0]
-
-        inequalities = [g_pos, g_neg][:n_ineq]
-        fb = FischerBurmeisterReformulation(n_original_outputs=n_orig, inequalities=inequalities)
-
-        cfg = ENFORCEConfig(
-            input_neurons=2,
-            hidden_neurons=32,
-            output_neurons=n_orig,  # ignored when fb is passed; here for completeness
-        )
-        si = _scaling(2)
-        so = _scaling(n_orig + n_ineq)  # scaling covers the full extended space
-        return ENFORCE(scaling_input=si, scaling_output=so, c=fb, fb=fb, config=cfg, **model_kwargs), fb
-
-    def test_output_layer_uses_fb_no(self):
-        model, fb = self._make_fb_model(n_orig=3, n_ineq=2)
-        assert model.output_layer.out_features == fb.no  # 3, not 5
-
-    def test_self_no_is_extended(self):
-        model, fb = self._make_fb_model(n_orig=3, n_ineq=2)
-        assert model.no == fb.no + fb.n_ineq  # 5
-
-    def test_forward_appends_zero_lambda_columns(self):
-        n_orig, n_ineq = 3, 2
-        model, fb = self._make_fb_model(n_orig=n_orig, n_ineq=n_ineq)
-        x = torch.randn(8, 2)
-        out = model.forward(x)
-        assert out.shape == (8, n_orig + n_ineq)
-        # Lambda columns appended as zeros by forward()
-        assert torch.all(out[:, n_orig:] == 0.0)
-
-    def test_fb_single_inequality(self):
-        model, fb = self._make_fb_model(n_orig=2, n_ineq=1)
-        assert model.output_layer.out_features == 2
-        assert model.no == 3
-        x = torch.randn(4, 2)
-        assert model.forward(x).shape == (4, 3)
+def test_identity_weighting_uses_implicit_identity_matrix():
+    _, _, _, layer, _ = _system(no=3, weighting="I")
+    layer.dc_dy = torch.ones(2, 1, 3)
+    assert layer.Wi_f() is None
 
 
-# ── Unconstrained mode (MLP) ──────────────────────────────────────────────────
+def test_enforce_rejects_more_constraints_than_outputs():
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(2), torch.ones(2)))
+    constraints = Constraints(c=[lambda x, y: y[:, i] for i in range(3)])
+    with pytest.raises(ValueError, match="Too many constraints"):
+        ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints))
 
 
-class TestUnconstrainedMode:
-    def test_predict_equals_forward_when_unconstrained(self):
-        cfg = ENFORCEConfig(input_neurons=2, hidden_neurons=16, output_neurons=3)
-        model = _make_model(cfg, nc=1, constrained=False)
-        x = torch.randn(8, 2)
-        ytilde, yhat, proj_iter = model.predict(x, training=False)
-        expected = model.forward(x)
-        assert torch.allclose(ytilde, expected)
-        assert torch.allclose(yhat, expected)
-        assert proj_iter == 0
-
-    def test_constrained_flag_stored(self):
-        model = _make_model(ENFORCEConfig(), constrained=False)
-        assert model.constrained is False
+def test_enforce_rejects_empty_constraints():
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(2), torch.ones(2)))
+    constraints = Constraints()
+    with pytest.raises(ValueError, match="at least one constraint"):
+        ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints))
 
 
-# ── Per-run seed override (run_benchmark.py pattern) ─────────────────────────
+def test_compute_residual_rejects_unknown_tolerance_mode():
+    _, _, _, layer, _ = _system()
+    with pytest.raises(ValueError, match="Invalid tolerance mode"):
+        layer.compute_residual(torch.ones(2, 1), tolerance_mode="median")
 
 
-class TestSeedOverridePattern:
-    """ENFORCEConfig(**{**base.__dict__, "random_seed": run_seed}) must produce
-    a model with different weights than one using a different seed."""
+def test_verbose_self_supervised_projection_without_soft_constraints():
+    from enforce import ENFORCELossConfig
+    from enforce.losses import ENFORCESSLLoss
 
-    def test_different_seeds_give_different_weights(self):
-        base_cfg = ENFORCEConfig(input_neurons=4, hidden_neurons=32, output_neurons=2)
-        cfg_42 = ENFORCEConfig(**{**base_cfg.__dict__, "random_seed": 42})
-        cfg_99 = ENFORCEConfig(**{**base_cfg.__dict__, "random_seed": 99})
-        m_42 = _make_model(cfg_42, nc=1)
-        m_99 = _make_model(cfg_99, nc=1)
-        params_42 = list(m_42.parameters())
-        params_99 = list(m_99.parameters())
-        any_different = any(not torch.allclose(p1, p2) for p1, p2 in zip(params_42, params_99))
-        assert any_different, "Different seeds should produce different initialisations"
+    class Objective(ENFORCESSLLoss):
+        def ssl_loss(self, x, yhat):
+            return torch.mean((yhat[:, 0] - yhat[:, 1]) ** 2)  # minimised on the constraint manifold
 
-    def test_architecture_preserved_across_seed_override(self):
-        base_cfg = ENFORCEConfig(input_neurons=3, hidden_neurons=64, output_neurons=5)
-        per_run_cfg = ENFORCEConfig(**{**base_cfg.__dict__, "random_seed": 777})
-        assert per_run_cfg.input_neurons == 3
-        assert per_run_cfg.hidden_neurons == 64
-        assert per_run_cfg.output_neurons == 5
-        assert per_run_cfg.random_seed == 777
+    scaler = Scaler((torch.zeros(2), torch.ones(2)), (torch.zeros(3), torch.ones(3)))
+    constraints = Constraints(c=[lambda x, y: y[:, 0] - y[:, 1]])
+    loss = Objective(scaler, constraints, ENFORCELossConfig(soft_constrained=False))
+    layer = ENFORCE(scaler, constraints, loss, ENFORCEConfig(verbose=True))
+    layer.train()
+    x, yhat, y = torch.randn(5, 2), torch.randn(5, 3), torch.randn(5, 3)
+    ytilde, _, _ = layer.project(x, yhat, y)
+    assert torch.allclose(ytilde[:, 0], ytilde[:, 1], atol=1e-5)
 
 
-# ── Scaling tensors stored on model ──────────────────────────────────────────
+def test_analytic_jacobian_sets_number_of_constraints_not_inputs():
+    scaler = Scaler((torch.zeros(3), torch.ones(3)), (torch.zeros(4), torch.ones(4)))
+
+    def jac(x, y):
+        dc_dy = torch.zeros(y.shape[0], 1, 4, dtype=y.dtype)
+        dc_dy[:, 0, 0], dc_dy[:, 0, 1] = 1.0, -1.0
+        return dc_dy
+
+    constraints = Constraints(c=[Constraint(lambda x, y: y[:, 0] - y[:, 1], jac=jac)])
+    cfg = ENFORCEConfig(weighting_option="I", regularise_gram=True, eps_chol=1e-8)
+    layer = ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints), cfg)
+    layer.eval()
+    x, yhat = torch.randn(5, 3), torch.randn(5, 4)
+    ytilde, _, _ = layer.project(x, yhat)
+    assert layer.nc == 1
+    assert torch.allclose(ytilde[:, 0], ytilde[:, 1], atol=1e-5)
 
 
-class TestScalingStored:
-    def test_scaling_tensors_stored(self):
-        cfg = ENFORCEConfig(input_neurons=2, output_neurons=3)
-        mean_in = torch.tensor([1.0, 2.0])
-        std_in = torch.tensor([0.5, 0.5])
-        mean_out = torch.tensor([0.0, 1.0, -1.0])
-        std_out = torch.tensor([1.0, 2.0, 3.0])
-        c = _linear_constraint(1)
-        model = ENFORCE(
-            scaling_input=(mean_in, std_in),
-            scaling_output=(mean_out, std_out),
-            c=c,
-            config=cfg,
-        )
-        assert torch.allclose(model.mean_input, mean_in.float())
-        assert torch.allclose(model.std_input, std_in.float())
-        assert torch.allclose(model.mean_output, mean_out.float())
-        assert torch.allclose(model.std_output, std_out.float())
+def test_ada_np_reports_its_own_iteration_cap(capsys):
+    scaler = Scaler((torch.zeros(2), torch.ones(2)), (torch.zeros(3), torch.ones(3)))
+    constraints = Constraints(c=[lambda x, y: y[:, 0] ** 2 + y[:, 1] - 1.0])
+    layer = ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints), ENFORCEConfig(max_it=100))
+    y = torch.randn(4, 3, requires_grad=True)
+    _, proj_iter = layer.ada_np(torch.randn(4, 2), y, tolerance_mode="mean", tolerance_value=0.0, max_iter=2)
+    assert proj_iter == 2
+    assert "Max projection iteration reached (2)" in capsys.readouterr().out
+
+
+def test_enforce_does_not_modify_the_callers_config():
+    scaler = Scaler((torch.zeros(2), torch.ones(2)), (torch.zeros(3), torch.ones(3)))
+    constraints = Constraints(c=[lambda x, y: y[:, 0] - y[:, 1]])
+    cfg = ENFORCEConfig(verbose=True)
+    with pytest.warns(UserWarning, match="Verbose"):
+        layer = ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints), cfg)
+    assert cfg.verbose is True
+    assert layer.verbose is False
+
+
+def _fb_system(no, nc, ng):
+    # Scaler width includes one multiplier column per inequality (extended outputs)
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(no + ng), torch.ones(no + ng)))
+    constraints = Constraints(
+        c=[lambda x, y, i=i: y[:, i % no] - 1.0 for i in range(nc)] or None,
+        g=[lambda x, y, i=i: -y[:, i % no] for i in range(ng)] or None,
+    )
+    return scaler, constraints
+
+
+def test_equalities_are_counted_against_original_outputs_only():
+    scaler, constraints = _fb_system(no=2, nc=3, ng=2)  # 3 equalities on 2 real outputs
+    with pytest.raises(ValueError, match="Too many constraints"):
+        ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints))
+
+
+def test_inequalities_do_not_use_degrees_of_freedom():
+    scaler, constraints = _fb_system(no=2, nc=1, ng=3)  # more inequalities than outputs is fine
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints))
+
+
+def test_determined_warning_uses_original_outputs():
+    scaler, constraints = _fb_system(no=2, nc=2, ng=1)
+    with pytest.warns(UserWarning, match="determined"):
+        ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints))

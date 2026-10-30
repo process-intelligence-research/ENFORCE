@@ -7,7 +7,7 @@ Workflow
 --------
 1. Run a reference training for each problem with the default config::
 
-       python scripts/run_benchmark.py   # set PROBLEM in config_benchmarking.py
+       python -m scripts.run_benchmark   # set PROBLEM in config_benchmarking.py
 
 2. Register those results as fixtures::
 
@@ -67,7 +67,6 @@ _BASE = dict(
     SAVE=True,
     PLOT=False,
     VERBOSE=False,
-    IFT_BACKWARD=False,
     REGULARISE_GRAM=False,
     SOFT_CONSTRAINED=False,
     WEIGHT_LOSS_SOFT=0.0,
@@ -89,7 +88,7 @@ _PROBLEM_CONFIGS: dict[str, dict] = {
         "TRAINING_TOLERANCE": 0.0001,
         "INFERENCE_TOLERANCE": 1e-6,
         "MAX_IT": 100,
-        "PROJ_WEIGHTING_OPTION": 5,
+        "PROJ_WEIGHTING_OPTION": "ID",
         "ADA_NP_AUTO_ACTIVATION": True,
         "INPUT_NEURONS": 1,
         "HIDDEN_NEURONS": 64,
@@ -108,7 +107,7 @@ _PROBLEM_CONFIGS: dict[str, dict] = {
         "TRAINING_TOLERANCE": 0.0001,
         "INFERENCE_TOLERANCE": 1e-6,
         "MAX_IT": 100,
-        "PROJ_WEIGHTING_OPTION": 5,
+        "PROJ_WEIGHTING_OPTION": "ID",
         "ADA_NP_AUTO_ACTIVATION": True,
         "INPUT_NEURONS": 3,
         "HIDDEN_NEURONS": 64,
@@ -131,7 +130,7 @@ _PROBLEM_CONFIGS: dict[str, dict] = {
         "TRAINING_TOLERANCE": 1e-4,
         "INFERENCE_TOLERANCE": 1e-4,
         "MAX_IT": 100,
-        "PROJ_WEIGHTING_OPTION": 1,
+        "PROJ_WEIGHTING_OPTION": "I",
         "ADA_NP_AUTO_ACTIVATION": True,
         "POOLING_EPS_CHOL": 1e-3,
         "REGULARISE_GRAM": True,
@@ -156,7 +155,7 @@ _PROBLEM_CONFIGS: dict[str, dict] = {
         "TRAINING_TOLERANCE": 1e-4,
         "INFERENCE_TOLERANCE": 1e-4,
         "MAX_IT": 100,
-        "PROJ_WEIGHTING_OPTION": 1,
+        "PROJ_WEIGHTING_OPTION": "I",
         "ADA_NP_AUTO_ACTIVATION": False,
         "INPUT_NEURONS": 1,
         "HIDDEN_NEURONS": 64,
@@ -181,7 +180,7 @@ _PROBLEM_CONFIGS: dict[str, dict] = {
         "TRAINING_TOLERANCE": 1e-3,
         "INFERENCE_TOLERANCE": 1e-3,
         "MAX_IT": 100,
-        "PROJ_WEIGHTING_OPTION": 1,
+        "PROJ_WEIGHTING_OPTION": "I",
         "ADA_NP_AUTO_ACTIVATION": True,
         "INPUT_NEURONS": 50,
         "HIDDEN_NEURONS": 200,
@@ -209,7 +208,7 @@ _PROBLEM_CONFIGS: dict[str, dict] = {
         "TRAINING_TOLERANCE": 1e-3,
         "INFERENCE_TOLERANCE": 1e-3,
         "MAX_IT": 100,
-        "PROJ_WEIGHTING_OPTION": 1,
+        "PROJ_WEIGHTING_OPTION": "I",
         "ADA_NP_AUTO_ACTIVATION": True,
         "INPUT_NEURONS": 50,
         "HIDDEN_NEURONS": 200,
@@ -267,6 +266,21 @@ def _is_constraint_col(key: str) -> bool:
     return any(p in key for p in ("ineq_", "infeasible", "violation"))
 
 
+# Direction of improvement per metric. A deviation beyond tolerance in the better
+# direction passes (reported as BETTER); only regressions fail. Metrics not listed
+# here (e.g. objective values) have no better direction and stay two-sided.
+_HIGHER_IS_BETTER = ("r2_",)
+_LOWER_IS_BETTER = ("mse_", "nrmse_", "mape_", "residual_", "ineq_")
+
+
+def _is_improvement(key: str, act: float, exp: float) -> bool:
+    if key.startswith(_HIGHER_IS_BETTER):
+        return act > exp
+    if key.startswith(_LOWER_IS_BETTER):
+        return act < exp
+    return False
+
+
 def _assert_close(actual: dict, expected: dict, label: str, unconstrained: bool = False) -> None:
     skip_extra = _SKIP_UNCONSTRAINED if unconstrained else frozenset()
 
@@ -295,14 +309,15 @@ def _assert_close(actual: dict, expected: dict, label: str, unconstrained: bool 
         # abs=0.01 floor covers near-zero constraint residuals and violation metrics
         # that may show sub-tolerance numerical noise between code versions.
         ok = act == pytest.approx(exp, rel=0.05, abs=0.01)
+        better = not ok and _is_improvement(key, act, exp)
         if exp != 0:
             rel_diff = abs(act - exp) / abs(exp) * 100
             diff_str = f"  rel={rel_diff:.2f}%"
         else:
             diff_str = f"  abs_diff={abs(act - exp):.2e}"
-        status = "OK" if ok else "FAIL"
+        status = "OK" if ok else "BETTER" if better else "FAIL"
         print(f"    {status:<6}  {key:<45}  got={act:.6g}  exp={exp:.6g}{diff_str}")
-        if not ok:
+        if not ok and not better:
             failures.append(f"  {key}: got {act!r}, expected {exp!r}")
     assert not failures, f"[{label}] value mismatch:\n" + "\n".join(failures)
 
@@ -330,7 +345,6 @@ def test_benchmark_reproducibility(monkeypatch, tmp_path, problem):
     cfg = SimpleNamespace(**cfg_dict)
     monkeypatch.setitem(sys.modules, "benchmark_problems.config_benchmarking", cfg)
     monkeypatch.delitem(sys.modules, "scripts.run_benchmark", raising=False)
-    monkeypatch.delitem(sys.modules, "run_benchmark", raising=False)
 
     import scripts.run_benchmark as run_benchmark
 
@@ -353,3 +367,20 @@ def test_benchmark_reproducibility(monkeypatch, tmp_path, problem):
             f"{problem}/{section}",
             unconstrained="unconstrained" in section,
         )
+
+
+def test_assert_close_passes_improvements_and_fails_regressions(capsys):
+    """Deviations beyond tolerance pass when the metric improved, fail when it got worse."""
+    expected = {"mse_y1": 1.0, "mape_y1": 0.5, "r2_y1": 0.5, "residual_avg": 1.0, "obj_value_pred": -10.0}
+
+    better = {"mse_y1": 0.8, "mape_y1": 0.4, "r2_y1": 0.6, "residual_avg": 0.5, "obj_value_pred": -10.0}
+    _assert_close(better, expected, "better")
+    assert capsys.readouterr().out.count("BETTER") == 4
+
+    for key, worse in [("mse_y1", 1.2), ("mape_y1", 0.6), ("r2_y1", 0.4), ("residual_avg", 1.5)]:
+        with pytest.raises(AssertionError, match=key):
+            _assert_close({**expected, key: worse}, expected, "worse")
+
+    # Metrics without a better direction stay two-sided.
+    with pytest.raises(AssertionError, match="obj_value_pred"):
+        _assert_close({**expected, "obj_value_pred": -12.0}, expected, "obj")

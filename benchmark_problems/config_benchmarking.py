@@ -3,6 +3,8 @@
 MODEL = "BOTH"  # Model type, options: "ENFORCE", "MLP", "BOTH"
 
 # Soft Constraints settings
+# MLP:     adds WEIGHT_LOSS_SOFT * (mean|c| + sum_i mean(max(0, g_i)^2)) via SoftConstrainedLoss
+# ENFORCE: adds WEIGHT_LOSS_SOFT * mean|c| (incl. FB residuals) on top of the projection
 SOFT_CONSTRAINED = False
 WEIGHT_LOSS_SOFT = 0
 
@@ -20,23 +22,20 @@ FIX_SEED = False  # Fix seed for reproducibility (among different runs)
 N = 5  # Number of runs
 VERBOSE = False
 
-# Backpropagation through projection
-# True  → Implicit Function Theorem backward
-# False → unrolled autograd
-IFT_BACKWARD = False
-
 # Parametric optimization benchmark settings (only relevant if PROBLEM is "nonconvex_linear" or "nonconvex_nonlinear")
 N_VARIABLES_OPT = 100  # Number of variables (optimization variables)
 N_CONSTRAINTS_OPT = 50  # Number of constraints (optimization constraints)
 
 # Hard Constraints settings
+# PROJ_WEIGHTING_OPTION: "I" identity, "BA" batch-averaged, "ID" instance-dependent,
+#                        "R" random, "TF" trainable diagonal
 if PROBLEM in ("function_fitting", "extraction_column"):
     WEIGHT_LOSS_DISPLACEMENT = 0.5
     EPOCH_START_HARD_CONSTRAINED = 0
     TRAINING_TOLERANCE = 0.0001
     INFERENCE_TOLERANCE = 1e-6
     MAX_IT = 100
-    PROJ_WEIGHTING_OPTION = 5
+    PROJ_WEIGHTING_OPTION = "ID"
     ADA_NP_AUTO_ACTIVATION = True
 elif PROBLEM == "pooling":
     WEIGHT_LOSS_DISPLACEMENT = 0.5
@@ -44,7 +43,7 @@ elif PROBLEM == "pooling":
     TRAINING_TOLERANCE = 1e-4
     INFERENCE_TOLERANCE = 1e-4
     MAX_IT = 100
-    PROJ_WEIGHTING_OPTION = 1
+    PROJ_WEIGHTING_OPTION = "I"
     ADA_NP_AUTO_ACTIVATION = True
     POOLING_EPS_CHOL = 1e-3  # Cholesky regularisation
     REGULARISE_GRAM = True
@@ -54,7 +53,7 @@ elif PROBLEM == "sin_ineq":
     TRAINING_TOLERANCE = 1e-4
     INFERENCE_TOLERANCE = 1e-4
     MAX_IT = 100
-    PROJ_WEIGHTING_OPTION = 1
+    PROJ_WEIGHTING_OPTION = "I"
     ADA_NP_AUTO_ACTIVATION = False  # always run ada_np regardless of loss improvement
 elif PROBLEM == "nonconvex_linear" or PROBLEM == "nonconvex_nonlinear":
     WEIGHT_LOSS_DISPLACEMENT = 0.5
@@ -62,7 +61,7 @@ elif PROBLEM == "nonconvex_linear" or PROBLEM == "nonconvex_nonlinear":
     TRAINING_TOLERANCE = 1e-3
     INFERENCE_TOLERANCE = 1e-3
     MAX_IT = 100
-    PROJ_WEIGHTING_OPTION = 1
+    PROJ_WEIGHTING_OPTION = "I"
     ADA_NP_AUTO_ACTIVATION = True
 
 if PROBLEM != "pooling":
@@ -145,10 +144,15 @@ LEFT_LIMIT = -2.0
 RIGHT_LIMIT = 2.0
 
 # Optimization problem data
-if PROBLEM == "nonconvex_linear" or PROBLEM == "nonconvex_nonlinear":
+PARAMS_PATH = "unused"
+if PROBLEM == "nonconvex_linear":
+    INPUT_DATA_PATH = f"data/raw/{PROBLEM}/X_data_random_nonconvex_dataset_var{N_VARIABLES_OPT}_ineq0_eq{N_CONSTRAINTS_OPT}_ex10000_int-5_5.csv"
+    OUTPUT_DATA_PATH = f"data/raw/{PROBLEM}/Y_data_random_nonconvex_dataset_var{N_VARIABLES_OPT}_ineq0_eq{N_CONSTRAINTS_OPT}_ex10000_int-5_5.csv"
+    PARAMS_PATH = f"data/raw/{PROBLEM}/parameters_random_nonconvex_dataset_var{N_VARIABLES_OPT}_ineq0_eq{N_CONSTRAINTS_OPT}_ex10000_int-5_5.pkl"
+elif PROBLEM == "nonconvex_nonlinear":
     INPUT_DATA_PATH = f"data/raw/{PROBLEM}/X_data_random_nonlinearnonconvex_dataset_dim{N_VARIABLES_OPT}_eq{N_CONSTRAINTS_OPT}_ex10000_int-5_5.csv"
     OUTPUT_DATA_PATH = f"data/raw/{PROBLEM}/Y_data_random_nonlinearnonconvex_dataset_dim{N_VARIABLES_OPT}_eq{N_CONSTRAINTS_OPT}_ex10000_int-5_5.csv"
-PARAMS_PATH = f"data/raw/{PROBLEM}/parameters_random_nonlinearnonconvex_dataset_dim{N_VARIABLES_OPT}_eq{N_CONSTRAINTS_OPT}_ex10000_int-5_5.pkl"
+    PARAMS_PATH = f"data/raw/{PROBLEM}/parameters_random_nonlinearnonconvex_dataset_dim{N_VARIABLES_OPT}_eq{N_CONSTRAINTS_OPT}_ex10000_int-5_5.pkl"
 if PROBLEM == "extraction_column":
     INPUT_DATA_PATH_TRAIN = f"data/raw/{PROBLEM}/ED_Col_Data_x_train.csv"
     OUTPUT_DATA_PATH_TRAIN = f"data/raw/{PROBLEM}/ED_Col_Data_y_train.csv"
@@ -162,14 +166,8 @@ elif PROBLEM == "pooling":
     INPUT_DATA_PATH_TEST = f"data/raw/{PROBLEM}/Pooling_dataset_x_test.csv"
     OUTPUT_DATA_PATH_TEST = f"data/raw/{PROBLEM}/Pooling_dataset_y_test.csv"
 
-# Output directories
-if PROBLEM in ("function_fitting"):
-    TRAINING_DIR = "training_output"  # Base directory for training outputs
-elif PROBLEM == "nonconvex_linear" or PROBLEM == "nonconvex_nonlinear":
+# Output directory (run_benchmark.py appends the problem name)
+if PROBLEM in ("nonconvex_linear", "nonconvex_nonlinear"):
     TRAINING_DIR = f"training_output/{N_CONSTRAINTS_OPT}"
-elif PROBLEM == "extraction_column":
-    TRAINING_DIR = f"training_output/{PROBLEM}"
-elif PROBLEM == "pooling":
-    TRAINING_DIR = f"training_output/{PROBLEM}"
-elif PROBLEM == "sin_ineq":
-    TRAINING_DIR = f"training_output/{PROBLEM}"
+else:
+    TRAINING_DIR = "training_output"

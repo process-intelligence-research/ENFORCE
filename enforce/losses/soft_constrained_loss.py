@@ -49,6 +49,8 @@ class SoftConstrainedLoss(LossCore):
     ``loss = MSE(yhat, y) + weight_loss_soft * soft_constraint_penalty(x, yhat)``
 
     The penalty is computed on unscaled values, so the inputs ``x`` must be passed.
+    With inequalities, ``yhat`` and ``y`` have the extended width ``NO + NG`` of the scaler: extend the
+    labels with :meth:`Constraints.extend_outputs` and let the backbone predict ``NO + NG`` outputs.
     For a :class:`ConstrainedModel` use :class:`ENFORCELoss` with
     ``ENFORCELossConfig.soft_constrained`` instead.
 

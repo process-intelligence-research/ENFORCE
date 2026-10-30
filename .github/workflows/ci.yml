@@ -10,7 +10,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -28,10 +28,35 @@ jobs:
       - name: Run tests with coverage
         run: uv run coverage run -m pytest
 
-      - name: Generate and publish coverage badge
+      - name: Generate coverage badge
         if: github.event_name == 'push'
+        run: uv run coverage-badge -o coverage.svg -f
+
+      - name: Upload coverage badge
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge
+          path: coverage.svg
+
+  badge:
+    # Publishes the badge with write access, without running the project's code or dependencies
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download coverage badge
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-badge
+          path: /tmp
+
+      - name: Publish coverage badge
         run: |
-          uv run coverage-badge -o /tmp/coverage.svg -f
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin

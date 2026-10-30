@@ -95,8 +95,8 @@ against `inference_tolerance`. It is a batch-level test: one hard sample keeps t
 
 - Seeds: `TrainingConfig.random_seed` (training, shuffling) and `MLPConfig.random_seed` (initial weights). Seed the
   data generation yourself.
-- Devices: `Scaler`, `Constraints` and `ENFORCE` use CUDA if available, chosen at construction. Their tensors are not
-  PyTorch buffers and do not follow `model.to(...)`; keep the model and data on that same device.
+- Devices: the projection runs on the device of the data; `Scaler` moves its statistics to its inputs. Put the model
+  and the data on the same device (`model.to(device)`, `x.to(device)`).
 - Saving: there is no save/load API yet. Save `model.state_dict()` together with the scaling statistics and the
   configs, and rebuild the objects before `load_state_dict` (as `scripts/run_benchmark.py` does with
   `scaling.json`). `torch.save(model)` fails if a constraint is a lambda.

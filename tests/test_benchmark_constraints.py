@@ -35,6 +35,7 @@ def test_pooling_factory_returns_combined_equality_and_inequality_constraints():
 
     expected_equalities = torch.tensor([[0.0, 2.0, 2.0, -3.5]])
     torch.testing.assert_close(residuals[:, :4], expected_equalities)
+    torch.testing.assert_close(constraints.g_values(x, y), torch.tensor([[-7.5, -4.5]]))
     torch.testing.assert_close(residuals[:, 4:], constraints.g(x, y_ext))
 
 

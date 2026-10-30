@@ -12,7 +12,8 @@ steps.
 
 Limitations to keep in mind:
 
-- Constraints affine in `y` are satisfied in one step. Nonlinear constraints converge only locally: the network's
+- Equality constraints affine in `y` are satisfied in one step; inequalities (nonlinear after the Fischer-Burmeister
+  reformulation) may need more. Nonlinear constraints converge only locally: the network's
   prediction must be close enough to the feasible set, and the constraint Jacobian must have full row rank.
 - **Feasibility is not guaranteed; check it** (see "Checking feasibility"). When `max_it` is reached, the layer
   prints `Max projection iteration reached` and returns the last iterate, which may be infeasible.

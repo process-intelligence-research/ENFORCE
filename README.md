@@ -15,7 +15,7 @@
 
 ENFORCE combines a neural network backbone with an **AdaNP** (Adaptive-depth Neural Projection) module to drive predictions toward feasibility with respect to nonlinear equality and inequality constraints. At each forward pass, AdaNP iteratively applies a linearize-and-project correction - an SQP-inspired Gauss-Newton step - until the constraint residual falls below a prescribed tolerance ε.
 
-For constraints that are **affine in the output** `y`, a single NP step achieves exact feasibility. For general nonlinear constraints, ε-feasibility is obtained locally: under standard regularity conditions (LICQ, C² smoothness) and when the backbone prediction is sufficiently close to the constraint manifold, AdaNP reduces the residual `‖c(x,ỹ)‖` below ε with a linear convergence rate. The model is trained with standard unconstrained optimization (Adam), not constrained solvers.
+For equality constraints that are **affine in the output** `y`, a single NP step achieves exact feasibility. For general nonlinear constraints, ε-feasibility is obtained locally: under standard regularity conditions (LICQ, C² smoothness) and when the backbone prediction is sufficiently close to the constraint manifold, AdaNP reduces the residual `‖c(x,ỹ)‖` below ε with a linear convergence rate. The model is trained with standard unconstrained optimization (Adam), not constrained solvers.
 
 Inequality constraints `g(x,y) ≤ 0` are handled via a Fischer-Burmeister (FB) reformulation that converts them into equalities in an extended output space `[y, λ]`, so the same AdaNP projection applies without modification.
 
@@ -213,7 +213,7 @@ ENFORCE appends an **AdaNP** module to any backbone network. Each NP layer solve
 
 This is the solution to the locally linearized projection problem and corresponds to a Gauss-Newton SQP step (without Hessian of constraints). AdaNP stacks NP layers adaptively until `‖c(x, ỹ)‖ < ε` or `max_it` is reached, relinearizing at each iterate. The Jacobian `B` is computed via automatic differentiation through the constraint function `c` only (not the backbone), or taken from an analytical Jacobian given with the constraint, so the per-step cost is `O(N_C³)`.
 
-**Scope of the ε-feasibility claim.** For constraints affine in `y`, a single NP step achieves exact feasibility. For nonlinear constraints, convergence is local: it requires the backbone prediction to lie in a neighborhood of the constraint manifold where LICQ holds and the linearization is accurate. If the backbone is far from feasibility or the Jacobian is ill-conditioned, residuals may remain above ε within the depth cap.
+**Scope of the ε-feasibility claim.** For equality constraints affine in `y`, a single NP step achieves exact feasibility. Inequalities are reformulated with the Fischer-Burmeister function, which is nonlinear even for affine `g`, so they may need more steps. For nonlinear constraints, convergence is local: it requires the backbone prediction to lie in a neighborhood of the constraint manifold where LICQ holds and the linearization is accurate. If the backbone is far from feasibility or the Jacobian is ill-conditioned, residuals may remain above ε within the depth cap.
 
 **Inequality constraints** `g(x,y) ≤ 0` are reformulated using the Fischer-Burmeister function
 

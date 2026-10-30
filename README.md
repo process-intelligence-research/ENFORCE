@@ -38,9 +38,18 @@ If you use ENFORCE in your work, please cite the [paper](https://arxiv.org/abs/2
 
 ## Installation
 
+Requires Python ≥ 3.10 and PyTorch ≥ 2.0.
+
 ### pip
 
+PyTorch is a dependency of ENFORCE. Install the PyTorch build for your hardware first, following the [PyTorch installation guide](https://pytorch.org/get-started/locally/); pip then keeps it. Otherwise pip installs PyTorch from PyPI (the CUDA build on Linux, the CPU build on Windows and macOS).
+
 ```
+# 1. PyTorch for your hardware, e.g.
+pip install torch --index-url https://download.pytorch.org/whl/cpu      # CPU
+pip install torch --index-url https://download.pytorch.org/whl/cu126    # CUDA 12.6
+
+# 2. ENFORCE
 pip install enforce-nn
 ```
 
@@ -50,32 +59,33 @@ The tutorial notebooks and benchmark scripts also need matplotlib and pandas, in
 pip install "enforce-nn[examples]"
 ```
 
-PyTorch must be installed separately for your hardware (CPU or CUDA):
-
-```
-# CPU
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-
-# CUDA - see https://pytorch.org/get-started/locally/ for the right command
-```
-
 ### uv
 
 ```
 uv add enforce-nn
 ```
 
-By default this resolves PyTorch from the CPU index (configured in `pyproject.toml`). For CUDA, install PyTorch manually following the [PyTorch installation guide](https://pytorch.org/get-started/locally/) and override the source entry.
+In your own project, uv resolves PyTorch from PyPI like pip. To use a specific PyTorch build, set the PyTorch index in your project's `pyproject.toml` (see uv's [PyTorch guide](https://docs.astral.sh/uv/guides/integration/pytorch/)), e.g. for CPU:
 
-### From source
+```toml
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+```
+
+### From source (development)
 
 ```
 git clone https://github.com/process-intelligence-research/ENFORCE
 cd ENFORCE
-pip install -e ".[examples]"
-# or (includes the dev tools)
-uv sync
+uv sync    # package, examples and dev tools
 ```
+
+In this repository, `uv sync` takes PyTorch from the CPU index set in its `pyproject.toml`; for CUDA, change that index URL (e.g. to `https://download.pytorch.org/whl/cu126`). This setting applies only when working in the repository, not to the published package. With pip instead: install PyTorch as above, then `pip install -e ".[examples]"`.
 
 ## Quick start
 

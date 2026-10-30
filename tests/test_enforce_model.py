@@ -258,6 +258,13 @@ def test_enforce_rejects_more_constraints_than_outputs():
         ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints))
 
 
+def test_enforce_rejects_empty_constraints():
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(2), torch.ones(2)))
+    constraints = Constraints()
+    with pytest.raises(ValueError, match="at least one constraint"):
+        ENFORCE(scaler, constraints, ENFORCELoss(scaler, constraints))
+
+
 def test_compute_residual_rejects_unknown_tolerance_mode():
     _, _, _, layer, _ = _system()
     with pytest.raises(ValueError, match="Invalid tolerance mode"):

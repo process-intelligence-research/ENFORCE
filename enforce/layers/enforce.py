@@ -151,6 +151,9 @@ class ENFORCE(nn.Module):
         if self.constraints.nc == n_out_orig:
             warnings.warn("The system is determined. Maybe you already know your underlying model!")
 
+        if self.constraints.nc + self.constraints.ng == 0:
+            raise ValueError("ENFORCE needs at least one constraint to project onto.")
+
         # Ensure the number of equality constraints is not greater than the number of original outputs
         if self.constraints.nc > n_out_orig:
             raise ValueError("Too many constraints!")

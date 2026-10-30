@@ -78,6 +78,8 @@ class ENFORCEConfig:
     def __post_init__(self):
         if self.ift_backward:
             raise NotImplementedError("The IFT backward pass is currently deprecated. Use ift_backward=False.")
+        if self.max_it < 1:
+            raise ValueError(f"max_it must be at least 1 (one projection step always runs), got {self.max_it}")
 
 
 

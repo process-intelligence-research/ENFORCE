@@ -30,6 +30,11 @@ def test_enforce_config_projection_defaults():
     assert cfg.random_seed == 42
 
 
+def test_enforce_config_rejects_max_it_below_one():
+    with pytest.raises(ValueError, match="max_it"):
+        ENFORCEConfig(max_it=0)
+
+
 def test_loss_config_has_only_loss_specific_options():
     cfg = ENFORCELossConfig()
     assert cfg.soft_constrained is False

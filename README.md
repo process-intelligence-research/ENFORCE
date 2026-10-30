@@ -30,11 +30,13 @@ If you use ENFORCE in your work, please cite the [paper](https://arxiv.org/abs/2
   title     = {ENFORCE: Nonlinear Constrained Learning with Adaptive-depth Neural Projection},
   year      = {2025},
   copyright = {arXiv.org perpetual, non-exclusive license},
-  doi       = {https://doi.org/10.48550/arXiv.2502.06774},
+  doi       = {10.48550/arXiv.2502.06774},
   keywords  = {Machine Learning (cs.LG), FOS: Computer and information sciences},
   publisher = {arXiv},
 }
 ```
+
+To refer to a specific version of the software, cite the repository: the "Cite this repository" button on GitHub gives the metadata from [`CITATION.cff`](https://github.com/process-intelligence-research/ENFORCE/blob/main/CITATION.cff), including the version.
 
 ## Installation
 

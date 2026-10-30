@@ -12,6 +12,7 @@ requires-python = ">=3.10"
 keywords = ["constrained learning", "hard-constrained neural networks", "trustworthy AI", "physics-informed machine learning", "parametric optimization"]
 authors = [
     { name = "Giacomo Lastrucci", email = "G.Lastrucci@tudelft.nl" },
+    { name = "Daniel Schicksnus", email = "D.L.Schicksnus@tudelft.nl" },
     { name = "Artur Schweidtmann", email = "A.Schweidtmann@tudelft.nl"}
 ]
 classifiers = [

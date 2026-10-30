@@ -418,7 +418,7 @@ class ENFORCE(nn.Module):
             ssl_loss_hat: torch.Tensor = self.ssl_loss(x_unscaled, yhat_unscaled)
             ssl_loss_tilde: torch.Tensor = self.ssl_loss(x_unscaled, ytilde_unscaled)
 
-            if self.epoch % 1 == 0 and self.epoch != self._epochprint:
+            if y is not None and self.epoch % 1 == 0 and self.epoch != self._epochprint:
                 avg_pred_obj_value: torch.Tensor = torch.mean(ssl_loss_tilde)
                 x_u, y_u = self.scaler.unscale(x_scaled=x, y_scaled=y)
                 avg_computed_obj_value: torch.Tensor = torch.mean(self.ssl_loss(x_u, y_u))

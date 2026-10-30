@@ -36,8 +36,6 @@ def _cfg(**overrides) -> SimpleNamespace:
         FIX_SEED=True,
         N=1,
         VERBOSE=False,
-        # Backprop
-        IFT_BACKWARD=False,
         # Soft constraints
         SOFT_CONSTRAINED=False,
         WEIGHT_LOSS_SOFT=0.0,
@@ -49,7 +47,7 @@ def _cfg(**overrides) -> SimpleNamespace:
         MAX_IT=10,
         ADA_NP_AUTO_ACTIVATION=False,
         REGULARISE_GRAM=False,
-        PROJ_WEIGHTING_OPTION=1,
+        PROJ_WEIGHTING_OPTION="I",
         # Synthetic data generation (function_fitting only)
         LEFT_LIMIT=-2.0,
         RIGHT_LIMIT=2.0,
@@ -161,7 +159,7 @@ def test_benchmark_smoke(monkeypatch, problem):
     monkeypatch.setitem(sys.modules, "benchmark_problems.config_benchmarking", cfg)
 
     # 2. Evict any cached run_benchmark so the fresh import picks up the mock.
-    monkeypatch.delitem(sys.modules, "run_benchmark", raising=False)
+    monkeypatch.delitem(sys.modules, "scripts.run_benchmark", raising=False)
 
     # 3. Import and run.  monkeypatch restores sys.modules on teardown.
     import scripts.run_benchmark as run_benchmark

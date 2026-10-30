@@ -22,6 +22,17 @@ def test_scaler_round_trips_inputs_and_outputs():
     torch.testing.assert_close(y_unscaled, y)
 
 
+def test_scaler_follows_the_device_of_its_inputs():
+    # The statistics may sit on another device (CUDA when available); "meta" reproduces a mismatch on CPU-only CI.
+    scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.zeros(2), torch.ones(2)))
+    x = torch.zeros(4, 1, device="meta")
+    y = torch.zeros(4, 2, device="meta")
+
+    for x_out, y_out in (scaler.scale(x, y), scaler.unscale(x, y)):
+        assert x_out.device.type == "meta"
+        assert y_out.device.type == "meta"
+
+
 def test_scaler_zero_output_standard_deviation_uses_centering_only():
     scaler = Scaler((torch.zeros(1), torch.ones(1)), (torch.tensor([3.0]), torch.tensor([0.0])))
     _, y_scaled = scaler.scale(torch.zeros(2, 1), torch.tensor([[4.0], [1.0]]))

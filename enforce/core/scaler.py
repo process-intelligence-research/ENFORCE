@@ -55,8 +55,8 @@ class Scaler:
         x, y : Tuple[torch.Tensor, torch.Tensor]
             Scaled input and output values.
         """
-        x = (x_unscaled - self.mean_input) / self.std_input
-        y = (y_unscaled - self.mean_output) / self._std_output_safe
+        x = (x_unscaled - self.mean_input.to(x_unscaled.device)) / self.std_input.to(x_unscaled.device)
+        y = (y_unscaled - self.mean_output.to(y_unscaled.device)) / self._std_output_safe.to(y_unscaled.device)
         return x, y
 
     def unscale(self, x_scaled: torch.Tensor, y_scaled: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -81,6 +81,6 @@ class Scaler:
             Unscaled input and output values.
         """
         with profiler.record_function("unscale"):
-            x = x_scaled * self.std_input + self.mean_input
-            y = y_scaled * self._std_output_safe + self.mean_output
+            x = x_scaled * self.std_input.to(x_scaled.device) + self.mean_input.to(x_scaled.device)
+            y = y_scaled * self._std_output_safe.to(y_scaled.device) + self.mean_output.to(y_scaled.device)
         return x, y

@@ -57,7 +57,7 @@ class Constraint:
             value = torch.stack(value, dim=1)
         elif value.ndim == 1:
             value = value.unsqueeze(1)
-        if value.ndim != 2 or value.shape[1] != self.size:
+        if value.ndim != 2 or value.shape[0] != y.shape[0] or value.shape[1] != self.size:
             raise ValueError(
                 f"Constraint '{self.name}' returned shape {tuple(value.shape)}, "
                 f"expected [BS, {self.size}]. Set `size` to the number of constraints it returns."

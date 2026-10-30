@@ -49,6 +49,15 @@ def test_block_with_wrong_declared_size_fails_with_its_name():
         constraints(torch.randn(3, 1), torch.randn(3, 4))
 
 
+def test_block_with_wrong_batch_size_fails_with_its_name():
+    def first_sample_only(x, y):
+        return y[:1, :2]
+
+    constraints = Constraints(c=[Constraint(first_sample_only, size=2)])
+    with pytest.raises(ValueError, match=r"first_sample_only.*\[BS, 2\]"):
+        constraints(torch.randn(3, 1), torch.randn(3, 4))
+
+
 def test_size_must_be_positive():
     with pytest.raises(ValueError, match="size"):
         Constraint(lambda x, y: y, size=0)

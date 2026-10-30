@@ -103,7 +103,7 @@ from enforce.models import MLPConfig, ENFORCEConstrainedMLP
 from enforce.engines import Trainer, TrainingConfig, Evaluator, EvaluationConfig
 from enforce.data import scale_data
 
-np.random.seed(0)  # data; Trainer seeds the model itself (TrainingConfig.random_seed)
+np.random.seed(0)  # data; initial weights: MLPConfig.random_seed, shuffling: TrainingConfig.random_seed
 
 # 1. Data
 def make_data(n):
@@ -156,7 +156,7 @@ from enforce.models import MLPConfig, ENFORCEConstrainedMLP
 from enforce.engines import Trainer, TrainingConfig, Evaluator, EvaluationConfig
 from enforce.data import scale_data
 
-np.random.seed(0)  # data; Trainer seeds the model itself (TrainingConfig.random_seed)
+np.random.seed(0)  # data; initial weights: MLPConfig.random_seed, shuffling: TrainingConfig.random_seed
 
 # 1. Constraints: equality c(x, y) = 0 and inequality g(x, y) <= 0
 def parabola(x, y):  return y[:, 0] ** 2 + y[:, 1] - x[:, 0]

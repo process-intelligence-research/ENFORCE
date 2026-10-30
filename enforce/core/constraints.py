@@ -22,6 +22,7 @@ class Constraint:
     fn :
         ``fn(x, y)`` on unscaled inputs ``[BS, NI]`` and original outputs ``[BS, NO]``.
         Returns ``[BS, size]``, ``[BS]`` (``size=1``) or a tuple of ``size`` ``[BS]`` tensors.
+        Each row may depend only on the same sample of ``x`` and ``y``, not on other samples in the batch.
     size :
         Number of constraints in the block.
     jac :

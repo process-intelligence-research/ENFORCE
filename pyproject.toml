@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "enforce-nn"
-version = "1.0.4"
+version = "2.0.0"
 description = "A hard-constrained neural network framework that enforces nonlinear equality and inequality constraints at inference time via adaptive-depth neural projection."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -25,9 +25,14 @@ classifiers = [
 dependencies = [
     "torch>=2.0",
     "numpy>=1.24",
-    "pandas>=2.0",
-    "matplotlib>=3.7",
     "scikit-learn>=1.3",
+]
+
+[project.optional-dependencies]
+# Tutorial notebooks and benchmark scripts (plotting, CSV data): pip install "enforce-nn[examples]"
+examples = [
+    "matplotlib>=3.7",
+    "pandas>=2.0",
 ]
 
 [project.urls]
@@ -37,6 +42,8 @@ Source = "https://github.com/process-intelligence-research/ENFORCE"
 [dependency-groups]
 dev = [
     "pytest>=8.2",
+    "matplotlib>=3.7",
+    "pandas>=2.0",
     "scipy>=1.11",
     "coverage>=7.5",
     "coverage-badge>=1.1",

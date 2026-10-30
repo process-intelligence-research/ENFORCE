@@ -1,6 +1,5 @@
 <p align="center">
-    <!--     You can add your logo in the _src_ below -->
-    <img src="https://www.pi-research.org/media/logo_hu8494cc98fadf15586318dd8eaf906d76_68826_0x70_resize_lanczos_3.png" />
+    <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/Process_Intelligence_Black_Horizontal.png" alt="Process Intelligence Research" height="70" />
 </p>
 
 # ENFORCE - Nonlinear Constrained Learning with Adaptive-depth Neural Projection
@@ -45,6 +44,12 @@ If you use ENFORCE in your work, please cite the [paper](https://arxiv.org/abs/2
 pip install enforce-nn
 ```
 
+The tutorial notebooks and benchmark scripts also need matplotlib and pandas, included in the `examples` extra:
+
+```
+pip install "enforce-nn[examples]"
+```
+
 PyTorch must be installed separately for your hardware (CPU or CUDA):
 
 ```
@@ -67,8 +72,8 @@ By default this resolves PyTorch from the CPU index (configured in `pyproject.to
 ```
 git clone https://github.com/process-intelligence-research/ENFORCE
 cd ENFORCE
-pip install -e .
-# or
+pip install -e ".[examples]"
+# or (includes the dev tools)
 uv sync
 ```
 
@@ -79,42 +84,48 @@ uv sync
 Fit `x → (y₁, y₂)` subject to the nonlinear constraint `(0.5 y₁)² + x² + y₂ = 0`:
 
 ```python
-import torch
 import numpy as np
-from enforce.core.model import ENFORCEConfig, ENFORCE
-from enforce.engines.train import Trainer, TrainingConfig
-from enforce.engines.evaluate import Evaluator, EvaluationConfig
-from enforce.data.data_utils import generate_data, scale_data
+import torch
+from enforce import Scaler, Constraints, ENFORCE, ENFORCEConfig, ENFORCELoss, ENFORCELossConfig
+from enforce.models import MLPConfig, ENFORCEConstrainedMLP
+from enforce.engines import Trainer, TrainingConfig, Evaluator, EvaluationConfig
+from enforce.data import scale_data
 
 # 1. Data
-x_train, y_train = generate_data([...], n=500)
-x_test,  y_test  = generate_data([...], n=200)
+def make_data(n):
+    x = np.random.uniform(-1.0, 1.0, (n, 1))
+    return x, np.column_stack([2 * np.sin(5 * x[:, 0]), -(np.sin(5 * x[:, 0]) ** 2 + x[:, 0] ** 2)])
+
+x_train, y_train = make_data(500)
+x_test,  y_test  = make_data(200)
 x_tr_s, y_tr_s, x_te_s, y_te_s, sp = scale_data(x_train, y_train, x_test, y_test)
+x_tr_t, y_tr_t, x_te_t, y_te_t = (torch.tensor(a, dtype=torch.float32) for a in (x_tr_s, y_tr_s, x_te_s, y_te_s))
+scaler = Scaler((sp["input_mean"], sp["input_std"]), (sp["output_mean"], sp["output_std"]))
 
-# 2. Constraint  c(x, y) -> [BS, NC]  (operates on unscaled x and y)
+# 2. Constraint c(x, y) = 0  (operates on unscaled x and y, returns [BS])
 def my_constraint(x, y):
-    return ((0.5 * y[:, 0])**2 + x[:, 0]**2 + y[:, 1]).unsqueeze(1)
+    return (0.5 * y[:, 0]) ** 2 + x[:, 0] ** 2 + y[:, 1]
 
-# 3. Build
-scaling_input  = (torch.tensor(sp["input_mean"]),  torch.tensor(sp["input_std"]))
-scaling_output = (torch.tensor(sp["output_mean"]), torch.tensor(sp["output_std"]))
-cfg   = ENFORCEConfig(input_neurons=1, output_neurons=2, hidden_neurons=64,
-                      hidden_layers=1, training_tolerance=1e-4,
-                      inference_tolerance=1e-6, max_it=100,
-                      supervised=True, weight_loss_displacement=0.5)
-model = ENFORCE(scaling_input=scaling_input, scaling_output=scaling_output,
-                c=my_constraint, config=cfg, constrained=True, weighting_option=1)
+constraints = Constraints(c=[my_constraint])
 
-# 4. Train / evaluate  (do NOT wrap in torch.no_grad() - AdaNP needs autograd)
-x_tr_t = torch.tensor(x_tr_s, dtype=torch.float32)
-y_tr_t = torch.tensor(y_tr_s, dtype=torch.float32)
-x_te_t = torch.tensor(x_te_s, dtype=torch.float32)
-y_te_t = torch.tensor(y_te_s, dtype=torch.float32)
+# 3. Build: loss, ENFORCE layer, backbone
+loss  = ENFORCELoss(scaler, constraints, ENFORCELossConfig(weight_loss_displacement=0.5))
+layer = ENFORCE(scaler, constraints, loss, ENFORCEConfig(training_tolerance=1e-4, inference_tolerance=1e-6, max_it=100))
+model = ENFORCEConstrainedMLP(MLPConfig(input_neurons=1, hidden_neurons=64, output_neurons=2, hidden_layers=1), layer)
 
-model  = Trainer(model, TrainingConfig(epochs=2000)).fit(x_tr_t, y_tr_t)
-result = Evaluator(model, EvaluationConfig()).evaluate(x_te_t, y_te_t, sp)
+# 4. Train / evaluate
+model  = Trainer(model, loss, scaler, constraints, TrainingConfig(epochs=2000)).fit(x_tr_t, y_tr_t)
+result = Evaluator(model, loss, scaler, constraints, EvaluationConfig()).evaluate(x_te_t, y_te_t)
 
 preds = result.predictions  # shape [N, 2], already unscaled
+```
+
+Each item in `c` (equalities) or `g` (inequalities) is either a plain callable returning one constraint `[BS]`, or a `Constraint` block of several constraints evaluated together. Equations with the same structure are fastest as one vectorised block, optionally with an analytical Jacobian `jac(x, y) -> [BS, size, NO]`:
+
+```python
+from enforce import Constraint
+
+constraints = Constraints(c=[Constraint(lambda x, y: y @ A.T - x, size=A.shape[0], jac=lambda x, y: A.expand(len(y), -1, -1))])
 ```
 
 ### Self-supervised - parametric optimization with inequality
@@ -122,55 +133,43 @@ preds = result.predictions  # shape [N, 2], already unscaled
 For each `x ∈ [2, 4]`, minimize `‖y‖²` subject to `y₁² + y₂ = x` (equality) and `y₁ ≥ 0` (inequality via FB):
 
 ```python
-import torch, torch.nn as nn, numpy as np
-from enforce.core.model import ENFORCEConfig, ENFORCE
-from enforce.core.fb_inequality_constraints import FischerBurmeisterReformulation
-from enforce.engines.train import Trainer, TrainingConfig
-from enforce.engines.evaluate import Evaluator, EvaluationConfig
-from enforce.data.data_utils import scale_data
+import numpy as np
+import torch
+from enforce import Scaler, Constraints, ENFORCE, ENFORCEConfig, ENFORCELossConfig
+from enforce.losses import ENFORCESSLLoss
+from enforce.models import MLPConfig, ENFORCEConstrainedMLP
+from enforce.engines import Trainer, TrainingConfig, Evaluator, EvaluationConfig
+from enforce.data import scale_data
 
-# 1. Constraints
-def parabola(x, y):     return (y[:, 0]**2 + y[:, 1] - x[:, 0]).unsqueeze(1)
-def g_nonneg(x, y):     return -y[:, 0]   # y1 >= 0  =>  g = -y1 <= 0
+# 1. Constraints: equality c(x, y) = 0 and inequality g(x, y) <= 0
+def parabola(x, y):  return y[:, 0] ** 2 + y[:, 1] - x[:, 0]
+def g_nonneg(x, y):  return -y[:, 0]   # y1 >= 0  =>  g = -y1 <= 0
 
-fb = FischerBurmeisterReformulation(n_original_outputs=2, inequalities=[g_nonneg])
+constraints = Constraints(c=[parabola], g=[g_nonneg])
 
-def c_full(x, y_ext):   # NC=2 <= NO=3 ✓
-    y = y_ext[:, :2]
-    return torch.cat([parabola(x, y), fb(x, y_ext)], dim=1)
+# 2. SSL objective - minimize ||y||² (yhat = [y, λ]: drop the FB multiplier column)
+class MinNorm(ENFORCESSLLoss):
+    def ssl_loss(self, x, yhat):
+        return torch.mean(torch.sum(yhat[:, :2] ** 2, dim=1))
 
-# 2. SSL objective - minimize ||y||²
-class MinNorm(nn.Module):
-    def forward(self, x, y_ext):
-        return torch.mean(torch.sum(y_ext[:, :2]**2, dim=1))
-
-# 3. Dummy labels (no targets needed in self-supervised mode)
+# 3. Dummy labels (no targets needed in self-supervised mode), extended with one zero λ column per inequality
 N = 2000
 x_train = np.random.uniform(2.0, 4.0, (N, 1)).astype(np.float32)
-y_dummy = fb.extend_outputs(np.zeros((N, 2), dtype=np.float32))
+y_dummy = constraints.extend_outputs(np.zeros((N, 2), dtype=np.float32))
 x_tr_s, y_tr_s, _, _, sp = scale_data(x_train, y_dummy, x_train, y_dummy)
+x_tr_t, y_tr_t = torch.tensor(x_tr_s), torch.tensor(y_tr_s)
+scaler = Scaler((sp["input_mean"], sp["input_std"]), (sp["output_mean"], sp["output_std"]))
 
-scaling_input  = (torch.tensor(sp["input_mean"]),  torch.tensor(sp["input_std"]))
-scaling_output = (torch.tensor(sp["output_mean"]), torch.tensor(sp["output_std"]))
-
-# 4. Build - output_neurons=fb.no (network predicts y only; λ appended in forward())
-cfg   = ENFORCEConfig(input_neurons=1, output_neurons=fb.no, hidden_neurons=64,
-                      hidden_layers=2, training_tolerance=1e-4,
-                      inference_tolerance=1e-6, max_it=100,
-                      supervised=False, weight_loss_displacement=0.5)
-model = ENFORCE(scaling_input=scaling_input, scaling_output=scaling_output,
-                c=c_full, fb=fb, ssl_loss=MinNorm(), config=cfg,
-                constrained=True, weighting_option=1)
+# 4. Build - the backbone predicts y only (scaler.no - constraints.ng = 2); λ is appended by ENFORCE
+loss  = MinNorm(scaler, constraints, ENFORCELossConfig(weight_loss_displacement=0.5))
+layer = ENFORCE(scaler, constraints, loss, ENFORCEConfig(training_tolerance=1e-4, inference_tolerance=1e-6, max_it=100))
+mlp_cfg = MLPConfig(input_neurons=1, hidden_neurons=64, output_neurons=scaler.no - constraints.ng, hidden_layers=2)
+model = ENFORCEConstrainedMLP(mlp_cfg, layer)
 
 # 5. Train / evaluate
-x_tr_t = torch.tensor(x_tr_s, dtype=torch.float32)
-y_tr_t = torch.tensor(y_tr_s, dtype=torch.float32)
-model  = Trainer(model, TrainingConfig(epochs=2000, n_original_outputs=fb.no)).fit(x_tr_t, y_tr_t)
-
-result = Evaluator(model, EvaluationConfig(
-    n_original_outputs=fb.no, inequalities=fb.inequalities
-)).evaluate(x_tr_t, y_tr_t, sp)
-preds  = fb.extract_outputs(result.predictions)  # [N, 2] - y1, y2 only
+model  = Trainer(model, loss, scaler, constraints, TrainingConfig(epochs=2000)).fit(x_tr_t, y_tr_t)
+result = Evaluator(model, loss, scaler, constraints, EvaluationConfig()).evaluate(x_tr_t, y_tr_t)
+preds  = result.predictions  # [N, 2] - y1, y2 only (multipliers removed)
 ```
 
 ## Tutorials
@@ -191,7 +190,7 @@ ENFORCE appends an **AdaNP** module to any backbone network. Each NP layer solve
 ỹ = (I − Bᵀ(BBᵀ)⁻¹B) ŷ + Bᵀ(BBᵀ)⁻¹v,   with  v = Bŷ − c(x, ŷ)
 ```
 
-This is the solution to the locally linearized projection problem and corresponds to a Gauss-Newton SQP step (without Hessian of constraints). AdaNP stacks NP layers adaptively until `‖c(x, ỹ)‖ < ε` or `max_it` is reached, relinearizing at each iterate. The Jacobian `B` is computed via automatic differentiation through the constraint function `c` only (not the backbone), so the per-step cost is `O(N_C³)`.
+This is the solution to the locally linearized projection problem and corresponds to a Gauss-Newton SQP step (without Hessian of constraints). AdaNP stacks NP layers adaptively until `‖c(x, ỹ)‖ < ε` or `max_it` is reached, relinearizing at each iterate. The Jacobian `B` is computed via automatic differentiation through the constraint function `c` only (not the backbone), or taken from an analytical Jacobian given with the constraint, so the per-step cost is `O(N_C³)`.
 
 **Scope of the ε-feasibility claim.** For constraints affine in `y`, a single NP step achieves exact feasibility. For nonlinear constraints, convergence is local: it requires the backbone prediction to lie in a neighborhood of the constraint manifold where LICQ holds and the linearization is accurate. If the backbone is far from feasibility or the Jacobian is ill-conditioned, residuals may remain above ε within the depth cap.
 
@@ -274,8 +273,9 @@ Key flags in `src/benchmark_problems/config_benchmarking.py`:
 
 | | | |
 | --- | --- | --- |
-| <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/profile_GL.png" width="50"> | [Giacomo Lastrucci](https://www.pi-research.org/author/giacomo-lastrucci/) | <a href="https://www.linkedin.com/in/giacomo-lastrucci/" rel="nofollow noreferrer"> <img src="https://i.sstatic.net/gVE0j.png" >  </a> <a href="https://scholar.google.com/citations?user=P0_vdtQAAAAJ&hl=en" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/pyDEXPI/master/docs/logos/google-scholar-square.svg" width="14">  </a> |
-| <img src="https://raw.githubusercontent.com/process-intelligence-research/pyDEXPI/master/docs/photos/Artur.jpg" width="50"> | [Artur M. Schweidtmann](https://www.pi-research.org/author/artur-schweidtmann/) | <a href="https://www.linkedin.com/in/schweidtmann/" rel="nofollow noreferrer"> <img src="https://i.sstatic.net/gVE0j.png" >  </a> <a href="https://scholar.google.com/citations?user=g-GwouoAAAAJ&hl=en" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/pyDEXPI/master/docs/logos/google-scholar-square.svg" width="14">  </a> |
+| <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/profile_GL.jpg" width="50"> | [Giacomo Lastrucci](https://www.pi-research.org/author/giacomo-lastrucci/) | <a href="https://www.linkedin.com/in/giacomo-lastrucci/" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/linkedin.png" width="14" alt="LinkedIn"> </a> <a href="https://scholar.google.com/citations?user=P0_vdtQAAAAJ&hl=en" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/google-scholar.svg" width="14" alt="Google Scholar"> </a> |
+| <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/profile_DLS.jpeg" width="50"> | Daniel Schicksnus | <a href="https://www.linkedin.com/in/daniel-leon-schicksnus-24198135b/" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/linkedin.png" width="14" alt="LinkedIn"> </a> |
+| <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/profile_AMS.jpg" width="50"> | [Artur M. Schweidtmann](https://www.pi-research.org/author/artur-schweidtmann/) | <a href="https://www.linkedin.com/in/schweidtmann/" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/linkedin.png" width="14" alt="LinkedIn"> </a> <a href="https://scholar.google.com/citations?user=g-GwouoAAAAJ&hl=en" rel="nofollow noreferrer"> <img src="https://raw.githubusercontent.com/process-intelligence-research/ENFORCE/main/static/google-scholar.svg" width="14" alt="Google Scholar"> </a> |
 
 
 ## Acknowledgements
@@ -304,7 +304,7 @@ Technische Universiteit Delft hereby disclaims all copyright interest in the pro
 </p>
 <p align="left">
 <a href="https://www.linkedin.com/in/schweidtmann/" target="_blank">
-  <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" />
+  <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0zIDloNHYxMkgzeiIvPjxjaXJjbGUgY3g9IjUiIGN5PSI0LjUiIHI9IjIuMiIvPjxwYXRoIGQ9Ik05IDloMy44djEuN2MuNi0xLjEgMi0yIDQtMiA0IDAgNC43IDIuNiA0LjcgNlYyMWgtNHYtNS42YzAtMS40IDAtMy4xLTEuOS0zLjFzLTIuMiAxLjUtMi4yIDNWMjFIOXoiLz48L3N2Zz4=" alt="LinkedIn" />
 </a>
 </p>
 

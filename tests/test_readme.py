@@ -42,6 +42,8 @@ def test_quick_start_example_runs_and_is_feasible(code):
     assert preds.shape == (len(evaluated), 2)
     assert np.isfinite(preds).all()
     assert result.metrics["residual_max"] < TOL
+    if "g=[" in code:
+        assert "ineq_g1_max_violation" in result.metrics
     for name, value in result.metrics.items():
         if name.endswith("_max_violation"):
             assert value < TOL, name

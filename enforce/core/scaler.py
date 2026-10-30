@@ -1,5 +1,6 @@
 from typing import Tuple
 
+import numpy as np
 import torch
 import torch.autograd.profiler as profiler
 
@@ -10,13 +11,13 @@ class Scaler:
     Parameters
     ----------
     scaling_input, scaling_output :
-        Tuples of (mean, std) tensors for input/output normalization.
+        Tuples of (mean, std) tensors or arrays, one value per column, for input/output normalization.
     """
 
     def __init__(
         self,
-        scaling_input: Tuple[float, float] | Tuple[torch.Tensor, torch.Tensor],
-        scaling_output: Tuple[float, float] | Tuple[torch.Tensor, torch.Tensor],
+        scaling_input: Tuple[torch.Tensor | np.ndarray, torch.Tensor | np.ndarray],
+        scaling_output: Tuple[torch.Tensor | np.ndarray, torch.Tensor | np.ndarray],
     ):
 
         super().__init__()

@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest a new feature or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The problem or use case (e.g. the kind of constraints or backbone), and why the current API does not cover it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Optional. How it could work, an API sketch, or references (papers, other libraries).

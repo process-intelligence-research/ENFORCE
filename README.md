@@ -286,6 +286,10 @@ Key flags in `benchmark_problems/config_benchmarking.py`:
 | `SAVE` | `True` | save model weights and metrics |
 | `FIX_SEED` | `False` | fix random seed across runs |
 
+## Contributing and support
+
+Questions, bug reports and feature requests go to [GitHub issues](https://github.com/process-intelligence-research/ENFORCE/issues). To contribute code, see [CONTRIBUTING.md](https://github.com/process-intelligence-research/ENFORCE/blob/main/CONTRIBUTING.md) for the development setup, the checks to run and how to open a pull request.
+
 ## Contributors
 
 | | | |

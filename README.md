@@ -91,6 +91,8 @@ from enforce.models import MLPConfig, ENFORCEConstrainedMLP
 from enforce.engines import Trainer, TrainingConfig, Evaluator, EvaluationConfig
 from enforce.data import scale_data
 
+np.random.seed(0)  # data; Trainer seeds the model itself (TrainingConfig.random_seed)
+
 # 1. Data
 def make_data(n):
     x = np.random.uniform(-1.0, 1.0, (n, 1))
@@ -118,6 +120,7 @@ model  = Trainer(model, loss, scaler, constraints, TrainingConfig(epochs=2000)).
 result = Evaluator(model, loss, scaler, constraints, EvaluationConfig()).evaluate(x_te_t, y_te_t)
 
 preds = result.predictions  # shape [N, 2], already unscaled
+print(f"max |c(x, y)|: {result.metrics['residual_max']:.1e}")  # below inference_tolerance = 1e-6
 ```
 
 Each item in `c` (equalities) or `g` (inequalities) is either a plain callable returning one constraint `[BS]`, or a `Constraint` block of several constraints evaluated together. Equations with the same structure are fastest as one vectorised block, optionally with an analytical Jacobian `jac(x, y) -> [BS, size, NO]`:
@@ -140,6 +143,8 @@ from enforce.losses import ENFORCESSLLoss
 from enforce.models import MLPConfig, ENFORCEConstrainedMLP
 from enforce.engines import Trainer, TrainingConfig, Evaluator, EvaluationConfig
 from enforce.data import scale_data
+
+np.random.seed(0)  # data; Trainer seeds the model itself (TrainingConfig.random_seed)
 
 # 1. Constraints: equality c(x, y) = 0 and inequality g(x, y) <= 0
 def parabola(x, y):  return y[:, 0] ** 2 + y[:, 1] - x[:, 0]
@@ -170,6 +175,8 @@ model = ENFORCEConstrainedMLP(mlp_cfg, layer)
 model  = Trainer(model, loss, scaler, constraints, TrainingConfig(epochs=2000)).fit(x_tr_t, y_tr_t)
 result = Evaluator(model, loss, scaler, constraints, EvaluationConfig()).evaluate(x_tr_t, y_tr_t)
 preds  = result.predictions  # [N, 2] - y1, y2 only (multipliers removed)
+print(f"max |c(x, y)|: {result.metrics['residual_max']:.1e}, "  # below inference_tolerance = 1e-6
+      f"max g(x, y) violation: {result.metrics['ineq_g1_max_violation']:.1e}")  # 0 if feasible
 ```
 
 ## Tutorials
@@ -259,7 +266,7 @@ These problems require pre-generated data files. [Download](https://surfdrive.su
 
 ### General settings
 
-Key flags in `src/benchmark_problems/config_benchmarking.py`:
+Key flags in `benchmark_problems/config_benchmarking.py`:
 
 | Flag | Default | Effect |
 |---|---|---|

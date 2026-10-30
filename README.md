@@ -138,8 +138,10 @@ print(f"max |c(x, y)|: {result.metrics['residual_max']:.1e}")  # below inference
 Each item in `c` (equalities) or `g` (inequalities) is either a plain callable returning one constraint `[BS]`, or a `Constraint` block of several constraints evaluated together. Equations with the same structure are fastest as one vectorised block, optionally with an analytical Jacobian `jac(x, y) -> [BS, size, NO]`:
 
 ```python
-from enforce import Constraint
+from enforce import Constraint, Constraints
+import torch
 
+A = torch.tensor([[1.0, 2.0], [0.0, 1.0]])  # equations A y = x, [size, NO]
 constraints = Constraints(c=[Constraint(lambda x, y: y @ A.T - x, size=A.shape[0], jac=lambda x, y: A.expand(len(y), -1, -1))])
 ```
 
